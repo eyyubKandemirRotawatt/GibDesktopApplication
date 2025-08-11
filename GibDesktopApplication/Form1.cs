@@ -1,16 +1,10 @@
 ﻿using System;
 using System.IO;
-using System.Security.Cryptography.X509Certificates;
+using System.Linq;
 using System.Windows.Forms;
 using System.Xml;
-using GibDesktopApplication.Managers;
-using tr.gov.tubitak.uekae.esya.api.asn.x509;
-using tr.gov.tubitak.uekae.esya.api.common.crypto;
-using tr.gov.tubitak.uekae.esya.api.common.util;
-using tr.gov.tubitak.uekae.esya.api.smartcard.util;
-using tr.gov.tubitak.uekae.esya.api.xmlsignature;
-using tr.gov.tubitak.uekae.esya.api.xmlsignature.config;
-using tr.gov.tubitak.uekae.esya.api.xmlsignature.document;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 
 namespace GibDesktopApplication
 {
@@ -25,19 +19,15 @@ namespace GibDesktopApplication
 
         private void loadXmlButton_Click(object sender, EventArgs e)
         {
-            OpenFileDialog openFileDialog = new OpenFileDialog();
-
-            // Sadece XML dosyalarını göstersin
-            openFileDialog.Filter = "XML Dosyaları (*.xml)|*.xml";
-            openFileDialog.Title = "XML Dosyası Seç";
-            openFileDialog.Multiselect = false; // Tek dosya seçilsin
-
-            if (openFileDialog.ShowDialog() == DialogResult.OK)
+            var ofd = new OpenFileDialog
             {
-                // Seçilen dosyanın yolunu al
-                loadedXmlFilePath = openFileDialog.FileName;
-
-                // İstersen dosya yolunu ekrana göster
+                Filter = "XML Dosyaları (*.xml)|*.xml",
+                Title = "XML Dosyası Seç",
+                Multiselect = false
+            };
+            if (ofd.ShowDialog() == DialogResult.OK)
+            {
+                loadedXmlFilePath = ofd.FileName;
                 MessageBox.Show("Seçilen dosya: " + loadedXmlFilePath);
             }
         }
@@ -52,99 +42,112 @@ namespace GibDesktopApplication
 
             try
             {
-                // 1) Lisans kontrol
-                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-                string licensePath = Path.Combine(baseDir, "lisans", "lisans.xml");
-                if (!File.Exists(licensePath))
+                // 1) XML yükle
+                var xml = new XmlDocument { PreserveWhitespace = true };
+                xml.Load(loadedXmlFilePath);
+                xml.Normalize();
+
+                // 1.1) placeholder Signature varsa kaldır
+                var nsmgr = new XmlNamespaceManager(xml.NameTable);
+                nsmgr.AddNamespace("earsiv", "http://earsiv.efatura.gov.tr");
+                var placeholder = xml.SelectSingleNode("//earsiv:baslik/Signature[@Id='ID001']", nsmgr);
+                placeholder?.ParentNode?.RemoveChild(placeholder);
+
+                // 1.2) imzanın konacağı düğüm
+                var baslik = xml.SelectSingleNode("/*/earsiv:baslik", nsmgr) as XmlElement;
+                if (baslik == null)
                 {
-                    MessageBox.Show($"Lisans dosyası bulunamadı: {licensePath}");
+                    MessageBox.Show("XML içinde 'earsiv:baslik' bulunamadı.");
                     return;
                 }
-                using (FileStream fs = new FileStream(licensePath, FileMode.Open, FileAccess.Read))
-                    LicenseUtil.setLicenseXml(fs);
 
-                // 2) Smartcard & sertifika
-                SmartCardManager scm = SmartCardManager.getInstance();
-                ECertificate cert = scm.getSignatureCertificate(false, false);
-
+                // 2) Sertifikayı mağazadan otomatik bul (RSA + private key)
+                X509Certificate2 cert = FindSigningCertificate();
                 if (cert == null)
                 {
-                    MessageBox.Show("Geçerli bir sertifika bulunamadı!");
+                    MessageBox.Show("Uygun (RSA, özel anahtarlı) bir sertifika bulunamadı.");
                     return;
                 }
 
-                string pin = "060606"; // test için sabit
-                BaseSigner signer = scm.getSigner(pin, cert);
-               
-                if (signer == null)
+                using (RSA rsa = cert.GetRSAPrivateKey())
                 {
-                    MessageBox.Show("Signer oluşturulamadı!");
-                    return;
+                    if (rsa == null)
+                    {
+                        MessageBox.Show("Sertifikada kullanılabilir RSA özel anahtarı yok.");
+                        return;
+                    }
+
+                    // 3) SignedXml kur
+                    var signedXml = new System.Security.Cryptography.Xml.SignedXml(xml);
+                    signedXml.SigningKey = rsa;
+                    signedXml.SignedInfo.SignatureMethod = System.Security.Cryptography.Xml.SignedXml.XmlDsigRSASHA256Url;
+
+                    // 3.1) Belgenin tamamına referans (URI="") + Enveloped + C14N
+                    var reference = new System.Security.Cryptography.Xml.Reference("");
+                    reference.DigestMethod = System.Security.Cryptography.Xml.SignedXml.XmlDsigSHA256Url;
+                    reference.AddTransform(new System.Security.Cryptography.Xml.XmlDsigEnvelopedSignatureTransform());
+                    reference.AddTransform(new System.Security.Cryptography.Xml.XmlDsigC14NTransform());
+
+                    signedXml.AddReference(reference);
+
+                    // 3.2) KeyInfo (X509)
+                    var keyInfo = new System.Security.Cryptography.Xml.KeyInfo();
+                    var x509Data = new System.Security.Cryptography.Xml.KeyInfoX509Data(cert);
+                    x509Data.AddIssuerSerial(cert.Issuer, cert.GetSerialNumberString());
+                    keyInfo.AddClause(x509Data);
+                    signedXml.KeyInfo = keyInfo;
+
+                    // 4) İmzayı üret ve baslik altına ekle
+                    signedXml.ComputeSignature();
+                    XmlElement dsSignature = signedXml.GetXml();
+                    baslik.AppendChild(xml.ImportNode(dsSignature, true));
                 }
 
-                // 3) XML yükleme
-                XmlDocument sysXml = new XmlDocument();
-                sysXml.PreserveWhitespace = true;
-                sysXml.Load(loadedXmlFilePath);
-                sysXml.Normalize();
-
-                if (sysXml.DocumentElement == null)
-                {
-                    MessageBox.Show("XML geçersiz!");
-                    return;
-                }
-
-                // 4) DOMDocument oluştur
-                Uri xmlUri = new Uri(Path.GetFullPath(loadedXmlFilePath));
-                byte[] xmlBytes;
-                using (MemoryStream ms = new MemoryStream())
-                {
-                    sysXml.Save(ms);
-                    xmlBytes = ms.ToArray();
-                }
-
-                // 5) InMemoryDocument oluştur
-                Document xmlDoc = new InMemoryDocument(
-                    xmlBytes,
-                    loadedXmlFilePath,
-                    "application/xml",
-                    "UTF-8"
-                );
-                // 5) Context yükle
-                string configPath = Path.Combine(baseDir, "config", "xmlsignature-config.xml");
-                if (!File.Exists(configPath))
-                {
-                    MessageBox.Show($"Config dosyası bulunamadı: {configPath}");
-                    return;
-                }
-                Context context = new Context();
-                context.Config = new Config(configPath);
-                
-
-                // 6) SignedDocument oluştur, dokümanı ekle
-                SignedDocument signedDoc = new SignedDocument(context);
-                signedDoc.addDocument(xmlDoc);
-
-                // 7) İmza oluştur ve uygula
-                XMLSignature signature = signedDoc.createSignature();
-                signature.addKeyInfo(cert);
-                signature.sign(signer);
-                
-                // 8) Çıktıyı kaydet
+                // 5) Kaydet
                 string outputPath = Path.Combine(
-                   Path.GetDirectoryName(loadedXmlFilePath),
-                   Path.GetFileNameWithoutExtension(loadedXmlFilePath) + "-imzali.xml"
+                    Path.GetDirectoryName(loadedXmlFilePath),
+                    Path.GetFileNameWithoutExtension(loadedXmlFilePath) + "-imzali.xml"
                 );
 
-                using (FileStream fsOut = new FileStream(outputPath, FileMode.Create, FileAccess.Write))
-                    signedDoc.write(fsOut);
+                var settings = new XmlWriterSettings
+                {
+                    Encoding = new System.Text.UTF8Encoding(false),
+                    Indent = false,
+                    NewLineHandling = NewLineHandling.None
+                };
+                using (var writer = XmlWriter.Create(outputPath, settings))
+                    xml.Save(writer);
 
                 MessageBox.Show("İmzalama başarıyla tamamlandı: " + outputPath);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Hata: {ex.Message}", "Kritik Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Hata: {ex.Message}", "Kritik Hata",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        private static X509Certificate2 FindSigningCertificate()
+        {
+            // CurrentUser\My → geçerli/özel anahtarlı/RSA olan ilk sertifika
+            using (var store = new X509Store(StoreName.My, StoreLocation.CurrentUser))
+            {
+                store.Open(OpenFlags.ReadOnly);
+                var nowValid = store.Certificates.Find(X509FindType.FindByTimeValid, DateTime.Now, false);
+                foreach (var c in nowValid.OfType<X509Certificate2>())
+                {
+                    try
+                    {
+                        if (!c.HasPrivateKey) continue;
+                        using (var rsa = c.GetRSAPrivateKey())
+                        {
+                            if (rsa != null) return c;
+                        }
+                    }
+                    catch { /* bazı tokenlar erişimde exception atabilir, geç */ }
+                }
+            }
+            return null;
         }
     }
 }

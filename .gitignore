@@ -361,3 +361,34 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Visual Studio çalışma klasörleri
+.vs/
+.vs/**/CopilotIndices/
+.vs/**/FileContentIndex/
+.vs/**/SemanticSymbols*
+.vs/**/v[0-9]*/
+.vs/**/DocumentLayout.json
+.vs/**/*.db
+.vs/**/*.db-shm
+.vs/**/*.db-wal
+.vs/**/*.vsidx
+*.suo
+*.rsuser
+*.sln.docstates
+*.user
+
+# Derleme çıktılarını tamamen gizle
+**/bin/
+**/obj/
+**/[Dd]ebug/
+**/[Rr]elease/
+x64/
+x86/
+
+# NuGet paket klasörü
+packages/
+*.nupkg
+*.snupkg
+# packages.config takipte kalsın:
+!**/packages.config
