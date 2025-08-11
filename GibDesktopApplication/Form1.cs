@@ -1,19 +1,22 @@
 ﻿using System;
 using System.IO;
-using System.Linq;
+using System.Text;
 using System.Windows.Forms;
 using System.Xml;
-using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
+
+using GibDesktopApplication.Managers;                           // SmartCardManager
+using tr.gov.tubitak.uekae.esya.api.asn.x509;                  // ECertificate
+using tr.gov.tubitak.uekae.esya.api.common.crypto;             // BaseSigner
+using tr.gov.tubitak.uekae.esya.api.common.util;               // LicenseUtil
+using tr.gov.tubitak.uekae.esya.api.xmlsignature;              // XMLSignature, SignedDocument
+using tr.gov.tubitak.uekae.esya.api.xmlsignature.config;       // Context, Config
+using tr.gov.tubitak.uekae.esya.api.xmlsignature.document;     // DOMDocument, InMemoryDocument, Document
 
 namespace GibDesktopApplication
 {
     public partial class Form1 : Form
     {
-        public Form1()
-        {
-            InitializeComponent();
-        }
+        public Form1() { InitializeComponent(); }
 
         private string loadedXmlFilePath = "";
 
@@ -42,73 +45,108 @@ namespace GibDesktopApplication
 
             try
             {
-                // 1) XML yükle
-                var xml = new XmlDocument { PreserveWhitespace = true };
-                xml.Load(loadedXmlFilePath);
-                xml.Normalize();
-
-                // 1.1) placeholder Signature varsa kaldır
-                var nsmgr = new XmlNamespaceManager(xml.NameTable);
-                nsmgr.AddNamespace("earsiv", "http://earsiv.efatura.gov.tr");
-                var placeholder = xml.SelectSingleNode("//earsiv:baslik/Signature[@Id='ID001']", nsmgr);
-                placeholder?.ParentNode?.RemoveChild(placeholder);
-
-                // 1.2) imzanın konacağı düğüm
-                var baslik = xml.SelectSingleNode("/*/earsiv:baslik", nsmgr) as XmlElement;
-                if (baslik == null)
+                // 1) Lisans
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                string licensePath = Path.Combine(baseDir, "lisans", "lisans.xml");
+                if (!File.Exists(licensePath))
                 {
-                    MessageBox.Show("XML içinde 'earsiv:baslik' bulunamadı.");
+                    MessageBox.Show($"Lisans dosyası bulunamadı: {licensePath}");
                     return;
                 }
+                using (FileStream lfs = new FileStream(licensePath, FileMode.Open, FileAccess.Read))
+                    LicenseUtil.setLicenseXml(lfs);
 
-                // 2) Sertifikayı mağazadan otomatik bul (RSA + private key)
-                X509Certificate2 cert = FindSigningCertificate();
+                // 2) Kart & sertifika & signer (Mali Mühür)
+                SmartCardManager scm = SmartCardManager.getInstance();
+                ECertificate cert = scm.getSignatureCertificate(false, false);
                 if (cert == null)
                 {
-                    MessageBox.Show("Uygun (RSA, özel anahtarlı) bir sertifika bulunamadı.");
+                    MessageBox.Show("Kartta geçerli bir Mali Mühür sertifikası bulunamadı!");
                     return;
                 }
 
-                using (RSA rsa = cert.GetRSAPrivateKey())
+                string pin = "060606"; // üretimde kullanıcıdan alın
+                BaseSigner signer = scm.getSigner(pin, cert);
+                if (signer == null)
                 {
-                    if (rsa == null)
-                    {
-                        MessageBox.Show("Sertifikada kullanılabilir RSA özel anahtarı yok.");
-                        return;
-                    }
-
-                    // 3) SignedXml kur
-                    var signedXml = new System.Security.Cryptography.Xml.SignedXml(xml);
-                    signedXml.SigningKey = rsa;
-                    signedXml.SignedInfo.SignatureMethod = System.Security.Cryptography.Xml.SignedXml.XmlDsigRSASHA256Url;
-
-                    // 3.1) Belgenin tamamına referans (URI="") + Enveloped + C14N
-                    var reference = new System.Security.Cryptography.Xml.Reference("");
-                    reference.DigestMethod = System.Security.Cryptography.Xml.SignedXml.XmlDsigSHA256Url;
-                    reference.AddTransform(new System.Security.Cryptography.Xml.XmlDsigEnvelopedSignatureTransform());
-                    reference.AddTransform(new System.Security.Cryptography.Xml.XmlDsigC14NTransform());
-
-                    signedXml.AddReference(reference);
-
-                    // 3.2) KeyInfo (X509)
-                    var keyInfo = new System.Security.Cryptography.Xml.KeyInfo();
-                    var x509Data = new System.Security.Cryptography.Xml.KeyInfoX509Data(cert);
-                    x509Data.AddIssuerSerial(cert.Issuer, cert.GetSerialNumberString());
-                    keyInfo.AddClause(x509Data);
-                    signedXml.KeyInfo = keyInfo;
-
-                    // 4) İmzayı üret ve baslik altına ekle
-                    signedXml.ComputeSignature();
-                    XmlElement dsSignature = signedXml.GetXml();
-                    baslik.AppendChild(xml.ImportNode(dsSignature, true));
+                    MessageBox.Show("Signer oluşturulamadı!");
+                    return;
                 }
 
-                // 5) Kaydet
+                // 3) Kaynak XML (imzasız) yükle
+                var sysXml = new XmlDocument();
+                sysXml.PreserveWhitespace = true;
+                sysXml.Load(loadedXmlFilePath);
+                sysXml.Normalize();
+
+                // 4) İmzalanacak veri: InMemoryDocument (DOM ctor sıkıntılarını baypas eder)
+                byte[] xmlBytes;
+                using (var msSrc = new MemoryStream())
+                {
+                    sysXml.Save(msSrc);
+                    xmlBytes = msSrc.ToArray();
+                }
+                Document memDoc = new InMemoryDocument(xmlBytes, loadedXmlFilePath, "application/xml", "UTF-8");
+
+                // 5) Context & Config
+                string configPath = Path.Combine(baseDir, "config", "xmlsignature-config.xml");
+                if (!File.Exists(configPath))
+                {
+                    MessageBox.Show($"Config dosyası bulunamadı: {configPath}");
+                    return;
+                }
+                Context context = new Context { Config = new Config(configPath) };
+
+                // 6) İmzayı üret
+                SignedDocument signedDoc = new SignedDocument(context);
+                signedDoc.addDocument(memDoc);
+
+                XMLSignature signature = signedDoc.createSignature();
+                signature.addKeyInfo(cert);
+                signature.sign(signer);
+
+                // 7) İmzalı çıktıyı geçici DOM'a al
+                var tmpSigned = new XmlDocument();
+                tmpSigned.PreserveWhitespace = true;
+                using (var msSigned = new MemoryStream())
+                {
+                    signedDoc.write(msSigned);
+                    msSigned.Position = 0;
+                    tmpSigned.Load(msSigned);
+                }
+
+                // 8) Signature düğümünü 'earsiv:baslik' içine taşı
+                var nsmgr = new XmlNamespaceManager(sysXml.NameTable);
+                nsmgr.AddNamespace("earsiv", "http://earsiv.efatura.gov.tr");
+
+                var baslikNode = sysXml.SelectSingleNode("/*/earsiv:baslik", nsmgr) as XmlElement;
+                if (baslikNode == null)
+                {
+                    MessageBox.Show("'earsiv:baslik' düğümü bulunamadı.");
+                    return;
+                }
+
+                var sigNode = tmpSigned.GetElementsByTagName("Signature", "http://www.w3.org/2000/09/xmldsig#")
+                                       .Item(0) as XmlElement;
+                if (sigNode == null)
+                {
+                    MessageBox.Show("İmza üretilemedi (Signature düğümü bulunamadı).");
+                    return;
+                }
+
+                // Eski Signature varsa kaldır
+                var oldSig = sysXml.GetElementsByTagName("Signature", "http://www.w3.org/2000/09/xmldsig#").Item(0) as XmlElement;
+                if (oldSig != null) oldSig.ParentNode.RemoveChild(oldSig);
+
+                // İmzayı import edip baslik altına ekle
+                XmlNode imported = sysXml.ImportNode(sigNode, true);
+                baslikNode.AppendChild(imported);
+
+                // 9) Kaydet
                 string outputPath = Path.Combine(
                     Path.GetDirectoryName(loadedXmlFilePath),
                     Path.GetFileNameWithoutExtension(loadedXmlFilePath) + "-imzali.xml"
                 );
-
                 var settings = new XmlWriterSettings
                 {
                     Encoding = new System.Text.UTF8Encoding(false),
@@ -116,38 +154,14 @@ namespace GibDesktopApplication
                     NewLineHandling = NewLineHandling.None
                 };
                 using (var writer = XmlWriter.Create(outputPath, settings))
-                    xml.Save(writer);
+                    sysXml.Save(writer);
 
-                MessageBox.Show("İmzalama başarıyla tamamlandı: " + outputPath);
+                MessageBox.Show("Mali Mühür ile imzalama tamam (imza 'baslik' içinde): " + outputPath);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Hata: {ex.Message}", "Kritik Hata",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Hata: {ex.Message}", "Kritik Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-        }
-
-        private static X509Certificate2 FindSigningCertificate()
-        {
-            // CurrentUser\My → geçerli/özel anahtarlı/RSA olan ilk sertifika
-            using (var store = new X509Store(StoreName.My, StoreLocation.CurrentUser))
-            {
-                store.Open(OpenFlags.ReadOnly);
-                var nowValid = store.Certificates.Find(X509FindType.FindByTimeValid, DateTime.Now, false);
-                foreach (var c in nowValid.OfType<X509Certificate2>())
-                {
-                    try
-                    {
-                        if (!c.HasPrivateKey) continue;
-                        using (var rsa = c.GetRSAPrivateKey())
-                        {
-                            if (rsa != null) return c;
-                        }
-                    }
-                    catch { /* bazı tokenlar erişimde exception atabilir, geç */ }
-                }
-            }
-            return null;
         }
     }
 }
