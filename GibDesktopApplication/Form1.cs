@@ -22,17 +22,17 @@ namespace GibDesktopApplication
 {
     public partial class Form1 : Form
     {
-       
-
         // State
         private string selectedFilePath = string.Empty;
         private string lastSignedXml = string.Empty;
 
-        private string lastSignedXmlPath = string.Empty;   // İmzalanan XML’in diskteki yolu
+        private string lastSignedXmlPath = string.Empty;   // İmzalanan XML'in diskteki yolu
         private string lastZipPath = string.Empty;         // Oluşturulan zip yolu
         private string lastZipBase64 = string.Empty;
 
         private string lastSoapXml = string.Empty;
+        private ECertificate currentCertificate = null;    // Sertifikayı saklayalım
+        private BaseSigner currentSigner = null;           // Signer'ı saklayalım
 
         public Form1()
         {
@@ -102,6 +102,10 @@ namespace GibDesktopApplication
                     MessageBox.Show("Signer oluşturulamadı!");
                     return;
                 }
+
+                // Sertifika ve signer'ı sakla (SOAP imzalama için)
+                currentCertificate = cert;
+                currentSigner = signer;
 
                 // 3) Kaynak XML'i yükle
                 var sysXml = new XmlDocument();
@@ -279,18 +283,202 @@ namespace GibDesktopApplication
         {
             try
             {
-                if (string.IsNullOrEmpty(lastSignedXml))
+                if (string.IsNullOrEmpty(lastZipBase64))
                 {
-                    MessageBox.Show("Önce belgeyi imzalayın.");
+                    MessageBox.Show("Önce ZIP dosyası oluşturun.");
                     return;
                 }
 
-                // TODO: Zip dosyasını veya hazırlanmış paketi tekrar imzala (MA3 ile).
-                Log("Zip paketi tekrar imzalandı (taslak).");
+                if (currentCertificate == null || currentSigner == null)
+                {
+                    MessageBox.Show("İmzalama sertifikası bulunamadı. Önce belgeyi imzalayın.");
+                    return;
+                }
+
+                progress.Style = ProgressBarStyle.Marquee;
+                Log("SOAP mesajı imzalanıyor...");
+
+                // SOAP mesajını oluştur ve imzala
+                string soapMessage = CreateSignedSoapMessage();
+                lastSoapXml = soapMessage;
+
+                // İmzalı SOAP mesajını kaydet (test/debug için)
+                string soapPath = Path.Combine(
+                    Path.GetDirectoryName(lastZipPath) ?? Environment.CurrentDirectory,
+                    "signed-soap-message.xml"
+                );
+                File.WriteAllText(soapPath, soapMessage, Encoding.UTF8);
+
+                Log($"SOAP mesajı imzalandı ve kaydedildi: {soapPath}");
+                MessageBox.Show("SOAP mesajı WSS ile imzalandı.", "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                btnSendWsdl.Enabled = true;
             }
             catch (Exception ex)
             {
-                Log("Hata (Tekrar İmzala): " + ex.Message);
+                Log("Hata (SOAP İmzala): " + ex.Message);
+                MessageBox.Show(ex.Message, "SOAP İmzalama Hatası", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                progress.Style = ProgressBarStyle.Blocks;
+            }
+        }
+
+        private string CreateSignedSoapMessage()
+        {
+            try
+            {
+                // UUID'leri oluştur
+                string timestampId = "TS-" + Guid.NewGuid().ToString("N");
+                string bodyId = "id-" + Guid.NewGuid().ToString("N");
+                string binaryTokenId = "X509-" + Guid.NewGuid().ToString("N");
+                string signatureId = "SIG-" + Guid.NewGuid().ToString("N");
+                string keyInfoId = "KI-" + Guid.NewGuid().ToString("N");
+                string strId = "STR-" + Guid.NewGuid().ToString("N");
+
+                // Zaman bilgileri
+                DateTime now = DateTime.UtcNow;
+                DateTime expires = now.AddMinutes(50); // 50 dakika geçerli
+                string created = now.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+                string expiry = expires.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+
+                // ZIP dosyasının adını al (UUID.zip formatında olmalı)
+                string zipFileName = Path.GetFileName(lastZipPath);
+
+                // Sertifika Base64
+                string certBase64 = Convert.ToBase64String(currentCertificate.asX509Certificate2().GetRawCertData());
+
+                // Base SOAP mesajını oluştur (imzasız)
+                string baseSoap = $@"<env:Envelope xmlns:env=""http://www.w3.org/2003/05/soap-envelope"">
+<env:Header>
+<wsse:Security xmlns:wsse=""http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd""
+               xmlns:wsu=""http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd""
+               env:mustUnderstand=""true"">
+<wsse:BinarySecurityToken EncodingType=""http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary""
+                          ValueType=""http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3""
+                          wsu:Id=""{binaryTokenId}"">{certBase64}</wsse:BinarySecurityToken>
+<wsu:Timestamp wsu:Id=""{timestampId}"">
+<wsu:Created>{created}</wsu:Created>
+<wsu:Expires>{expiry}</wsu:Expires>
+</wsu:Timestamp>
+</wsse:Security>
+</env:Header>
+<env:Body xmlns:wsu=""http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd""
+          wsu:Id=""{bodyId}"">
+<ns2:sendDocumentFile xmlns:ns2=""http://earsiv.vedop3.ggm.gov.org/"">
+<Attachment>
+<fileName>{zipFileName}</fileName>
+<binaryData>{lastZipBase64}</binaryData>
+</Attachment>
+</ns2:sendDocumentFile>
+</env:Body>
+</env:Envelope>";
+
+                // Base SOAP'ı XML olarak yükle
+                var soapDoc = new XmlDocument();
+                soapDoc.PreserveWhitespace = true;
+                soapDoc.LoadXml(baseSoap);
+
+                // MA3 ile imzalama
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                string configPath = Path.Combine(baseDir, "config", "xmlsignature-config.xml");
+                Context context = new Context { Config = new Config(configPath) };
+
+                var signedDoc = new SignedDocument(context);
+
+                // İmzalanacak elementleri ekle: Timestamp ve Body
+                var nsmgr = new XmlNamespaceManager(soapDoc.NameTable);
+                nsmgr.AddNamespace("env", "http://www.w3.org/2003/05/soap-envelope");
+                nsmgr.AddNamespace("wsse", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd");
+                nsmgr.AddNamespace("wsu", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd");
+
+                var timestampElement = soapDoc.SelectSingleNode($"//wsu:Timestamp[@wsu:Id='{timestampId}']", nsmgr) as XmlElement;
+                var bodyElement = soapDoc.SelectSingleNode($"//env:Body[@wsu:Id='{bodyId}']", nsmgr) as XmlElement;
+
+                if (timestampElement == null || bodyElement == null)
+                {
+                    throw new Exception("Timestamp veya Body elementi bulunamadı.");
+                }
+
+                // İmzalanacak düğümleri ekle
+                signedDoc.addXMLNode(timestampElement);
+                signedDoc.addXMLNode(bodyElement);
+
+                // İmzayı oluştur
+                var signature = signedDoc.createSignature();
+
+                // KeyInfo'yu DirectReference olarak ayarla
+                signature.addKeyInfo(currentCertificate);
+
+                // Canonicalization ve Signature algoritmaları (belge gereksinimlerine göre)
+                // Not: MA3 kütüphanesinde bu ayarlar config dosyasından kontrol edilebilir
+
+                signature.sign(currentSigner);
+
+                // İmzalı dökümanı geçici XML'e al
+                var tempSignedDoc = new XmlDocument();
+                tempSignedDoc.PreserveWhitespace = true;
+                using (var ms = new MemoryStream())
+                {
+                    signedDoc.write(ms);
+                    ms.Position = 0;
+                    tempSignedDoc.Load(ms);
+                }
+
+                // İmzayı orijinal SOAP'a taşı
+                var signatureElement = tempSignedDoc.GetElementsByTagName("Signature", "http://www.w3.org/2000/09/xmldsig#")
+                                                   .Item(0) as XmlElement;
+
+                if (signatureElement == null)
+                {
+                    throw new Exception("İmza elementi oluşturulamadı.");
+                }
+
+                // Security header'ına imzayı ekle
+                var securityElement = soapDoc.SelectSingleNode("//wsse:Security", nsmgr) as XmlElement;
+                if (securityElement == null)
+                {
+                    throw new Exception("Security elementi bulunamadı.");
+                }
+
+                // İmza ID'sini ayarla
+                signatureElement.SetAttribute("Id", signatureId);
+
+                // KeyInfo elementini düzenle (DirectReference için ID'leri ekle)
+                var dsNsmgr = new XmlNamespaceManager(signatureElement.OwnerDocument.NameTable);
+                dsNsmgr.AddNamespace("ds", "http://www.w3.org/2000/09/xmldsig#");
+                dsNsmgr.AddNamespace("wsse", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd");
+                dsNsmgr.AddNamespace("wsu", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd");
+
+                var keyInfoElement = signatureElement.SelectSingleNode("ds:KeyInfo", dsNsmgr) as XmlElement;
+
+                if (keyInfoElement != null)
+                {
+                    keyInfoElement.SetAttribute("Id", keyInfoId);
+
+                    // SecurityTokenReference ekle (keyInfoElement'in belgesinde oluştur)
+                    var keyInfoDoc = keyInfoElement.OwnerDocument;
+                    var secTokenRef = keyInfoDoc.CreateElement("wsse", "SecurityTokenReference", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd");
+                    secTokenRef.SetAttribute("Id", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd", strId);
+
+                    var reference = keyInfoDoc.CreateElement("wsse", "Reference", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd");
+                    reference.SetAttribute("URI", "#" + binaryTokenId);
+                    reference.SetAttribute("ValueType", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3");
+
+                    secTokenRef.AppendChild(reference);
+                    keyInfoElement.AppendChild(secTokenRef);
+                }
+
+                // İmzayı import et ve Security header'ına ekle
+                var importedSignature = soapDoc.ImportNode(signatureElement, true);
+                securityElement.InsertAfter(importedSignature, securityElement.SelectSingleNode("wsse:BinarySecurityToken", nsmgr));
+
+                return soapDoc.OuterXml;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"SOAP mesajı oluşturulurken hata: {ex.Message}", ex);
             }
         }
 
@@ -305,18 +493,47 @@ namespace GibDesktopApplication
                     return;
                 }
 
-                // TODO: SoapClient/Service Reference ile paketi gönder.
-                // Şirket kodu / kullanıcı adı / şifre alanlarını burada kullan.
-                // var company = txtCompanyCode.Text.Trim();
-                // var user = txtUsername.Text.Trim();
-                // var pass = txtPassword.Text;
+                if (string.IsNullOrEmpty(lastSoapXml))
+                {
+                    MessageBox.Show("Önce SOAP mesajını imzalayın (Tekrar İmzala butonuna basın).");
+                    return;
+                }
 
-                Log("WSDL ile gönderim tamamlandı (taslak).");
-                MessageBox.Show("Gönderim tamamlandı (taslak).");
+                progress.Style = ProgressBarStyle.Marquee;
+                Log("SOAP mesajı gönderiliyor...");
+
+                // Gerçek SOAP gönderimi için HttpClient veya WebRequest kullanılabilir
+                // Burada örnek implementasyon:
+
+                /*
+                using (var client = new HttpClient())
+                {
+                    client.DefaultRequestHeaders.Add("SOAPAction", "sendDocumentFile");
+                    var content = new StringContent(lastSoapXml, Encoding.UTF8, "application/soap+xml");
+                    var response = await client.PostAsync(url, content);
+                    var responseText = await response.Content.ReadAsStringAsync();
+                    
+                    Log($"SOAP Response: {response.StatusCode}");
+                    Log($"Response Content: {responseText}");
+                    
+                    // getBatchStatus ile durumu sorgulama kodu da eklenebilir
+                }
+                */
+
+                Log($"SOAP mesajı hazır. Endpoint: {url}");
+                Log("Not: Gerçek gönderim için HttpClient implementasyonu ekleyin.");
+
+                MessageBox.Show("SOAP mesajı hazır. Gerçek gönderim için HttpClient kodu ekleyin.", "Bilgi",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
                 Log("Hata (WSDL Gönder): " + ex.Message);
+                MessageBox.Show(ex.Message, "Gönderim Hatası", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                progress.Style = ProgressBarStyle.Blocks;
             }
         }
 
