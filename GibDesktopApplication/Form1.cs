@@ -1,9 +1,11 @@
 ﻿using System;
 using System.IO;
+using System.IO.Compression;
 using System.Text;
 using System.Windows.Forms;
 using System.Xml;
 
+// MA3 / Mali Mühür
 using GibDesktopApplication.Managers;                           // SmartCardManager
 using tr.gov.tubitak.uekae.esya.api.asn.x509;                  // ECertificate
 using tr.gov.tubitak.uekae.esya.api.common.crypto;             // BaseSigner
@@ -12,41 +14,69 @@ using tr.gov.tubitak.uekae.esya.api.xmlsignature;              // XMLSignature, 
 using tr.gov.tubitak.uekae.esya.api.xmlsignature.config;       // Context, Config
 using tr.gov.tubitak.uekae.esya.api.xmlsignature.document;     // InMemoryDocument, Document
 
+using System.Security.Cryptography;
+using System.Security.Cryptography.Xml;
+using System.Security.Cryptography.X509Certificates;
+
 namespace GibDesktopApplication
 {
     public partial class Form1 : Form
     {
-        public Form1() { InitializeComponent(); }
+       
 
-        private string loadedXmlFilePath = "";
+        // State
+        private string selectedFilePath = string.Empty;
+        private string lastSignedXml = string.Empty;
 
-        private void loadXmlButton_Click(object sender, EventArgs e)
+        private string lastSignedXmlPath = string.Empty;   // İmzalanan XML’in diskteki yolu
+        private string lastZipPath = string.Empty;         // Oluşturulan zip yolu
+        private string lastZipBase64 = string.Empty;
+
+        private string lastSoapXml = string.Empty;
+
+        public Form1()
         {
-            var ofd = new OpenFileDialog
-            {
-                Filter = "XML Dosyaları (*.xml)|*.xml",
-                Title = "XML Dosyası Seç",
-                Multiselect = false
-            };
+            InitializeComponent();
+        }
+
+        private void BtnBrowse_Click(object sender, EventArgs e)
+        {
             if (ofd.ShowDialog() == DialogResult.OK)
             {
-                loadedXmlFilePath = ofd.FileName;
-                MessageBox.Show("Seçilen dosya: " + loadedXmlFilePath);
+                selectedFilePath = ofd.FileName;
+                lblSelectedFile.Text = "Dosya: " + selectedFilePath;
+                Log("Belge seçildi.");
+                btnSign.Enabled = true; // belge seçilince imzala aç
             }
         }
 
-        private void getCertificateInfosBtn_Click(object sender, EventArgs e)
+        private void BtnSign_Click(object sender, EventArgs e)
         {
-            if (string.IsNullOrEmpty(loadedXmlFilePath))
-            {
-                MessageBox.Show("Lütfen önce bir XML dosyası seçin.");
-                return;
-            }
-
             try
             {
-                // 1) Lisans
+                if (string.IsNullOrWhiteSpace(selectedFilePath) || !File.Exists(selectedFilePath))
+                {
+                    MessageBox.Show("Lütfen imzalanacak belgeyi seçin.");
+                    return;
+                }
+
+                // Kimlik bilgileri (ileride servis çağrısında kullanacaksın)
+                var user = txtUsername.Text.Trim();
+                var pass = txtPassword.Text;
+
+                if (string.IsNullOrEmpty(user) || string.IsNullOrEmpty(pass))
+                {
+                    MessageBox.Show("Servis kimlik bilgilerini doldurun.");
+                    return;
+                }
+
+                progress.Style = ProgressBarStyle.Marquee;
+                Log("İmzalama başlatıldı…");
+
+                // === İMZALAMA KODU (MA3) ===
                 string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+
+                // 1) Lisans
                 string licensePath = Path.Combine(baseDir, "lisans", "lisans.xml");
                 if (!File.Exists(licensePath))
                 {
@@ -76,7 +106,7 @@ namespace GibDesktopApplication
                 // 3) Kaynak XML'i yükle
                 var sysXml = new XmlDocument();
                 sysXml.PreserveWhitespace = true;
-                sysXml.Load(loadedXmlFilePath);
+                sysXml.Load(selectedFilePath);
                 sysXml.Normalize();
 
                 // 3.a) Kökte yanlışlıkla default ds namespace varsa temizleyin (ÖNEMLİ)
@@ -99,14 +129,14 @@ namespace GibDesktopApplication
                     root.Attributes.Append(idAttr);
                 }
 
-                // 4) Bellek belgesi (opsiyonel; MA3 için şart değil ama dursun)
+                // 4) (Opsiyonel) InMemoryDocument hazırlığı
                 byte[] xmlBytes;
                 using (var msSrc = new MemoryStream())
                 {
                     sysXml.Save(msSrc);
                     xmlBytes = msSrc.ToArray();
                 }
-                Document memDoc = new InMemoryDocument(xmlBytes, loadedXmlFilePath, "application/xml", "UTF-8");
+                Document memDoc = new InMemoryDocument(xmlBytes, selectedFilePath, "application/xml", "UTF-8");
 
                 // 5) Context & Config
                 string configPath = Path.Combine(baseDir, "config", "xmlsignature-config.xml");
@@ -124,7 +154,7 @@ namespace GibDesktopApplication
                 signedDoc.addXMLNode(root);
 
                 // İstersen memDoc'u da data object olarak ekleyebilirsin (zorunlu değil)
-                 //signedDoc.addDocument(memDoc);
+                // signedDoc.addDocument(memDoc);
 
                 var signature = signedDoc.createSignature();
                 signature.addKeyInfo(cert);
@@ -169,9 +199,10 @@ namespace GibDesktopApplication
 
                 // 9) Kaydet
                 string outputPath = Path.Combine(
-                    Path.GetDirectoryName(loadedXmlFilePath),
-                    Path.GetFileNameWithoutExtension(loadedXmlFilePath) + "-imzali.xml"
+                    Path.GetDirectoryName(selectedFilePath),
+                    Path.GetFileNameWithoutExtension(selectedFilePath) + "-imzali.xml"
                 );
+                lastSignedXmlPath = outputPath;
                 var settings = new XmlWriterSettings
                 {
                     Encoding = new UTF8Encoding(false),
@@ -181,12 +212,117 @@ namespace GibDesktopApplication
                 using (var writer = XmlWriter.Create(outputPath, settings))
                     sysXml.Save(writer);
 
-                MessageBox.Show("Mali Mühür ile imzalama tamam (imza 'baslik' içinde): " + outputPath);
+                // Önizleme için oku
+                lastSignedXml = File.ReadAllText(outputPath, Encoding.UTF8);
+                txtSignedXml.Text = lastSignedXml;
+
+                // Adım düğmeleri
+                btnZip.Enabled = true;
+                btnReSign.Enabled = true;
+                btnSendWsdl.Enabled = true;
+
+                Log("İmzalama tamamlandı: " + outputPath);
+                MessageBox.Show("Mali Mühür ile imzalama tamam (imza 'baslik' içinde).", "Bilgi",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Hata: {ex.Message}", "Kritik Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Log("Hata (İmzala): " + ex.Message);
+                MessageBox.Show(ex.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+            finally
+            {
+                progress.Style = ProgressBarStyle.Blocks;
+            }
+        }
+
+        private void BtnZip_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(lastSignedXml) || string.IsNullOrEmpty(lastSignedXmlPath) || !File.Exists(lastSignedXmlPath))
+                {
+                    MessageBox.Show("Önce belgeyi imzalayın.");
+                    return;
+                }
+
+                // İmzalı dosya adı (örn: GUID.xml) -> ZIP = GUID.zip
+                string signedFileName = Path.GetFileName(lastSignedXmlPath);
+                string zipFileName = Path.GetFileNameWithoutExtension(lastSignedXmlPath) + ".zip";
+                string zipPath = Path.Combine(Path.GetDirectoryName(lastSignedXmlPath) ?? Environment.CurrentDirectory, zipFileName);
+
+                // Tek dosyalı ZIP (entry adı imzalı dosyayla aynı)
+                using (var zip = ZipFile.Open(zipPath, ZipArchiveMode.Create))
+                {
+                    zip.CreateEntryFromFile(lastSignedXmlPath, signedFileName, CompressionLevel.Optimal);
+                }
+
+                // Base64 (SOAP <binaryData> için)
+                var zipBytes = File.ReadAllBytes(zipPath);
+                lastZipBase64 = Convert.ToBase64String(zipBytes);
+                lastZipPath = zipPath;
+
+                Log($"Zip oluşturuldu: {zipPath} (boyut: {zipBytes.Length:N0} bayt)");
+                MessageBox.Show("Zip oluşturuldu ve Base64 hazırlandı.", "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                btnReSign.Enabled = true;
+                btnSendWsdl.Enabled = true;
+            }
+            catch (Exception ex)
+            {
+                Log("Hata (Zip): " + ex.Message);
+                MessageBox.Show(ex.Message, "Zip Hatası", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void BtnReSign_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(lastSignedXml))
+                {
+                    MessageBox.Show("Önce belgeyi imzalayın.");
+                    return;
+                }
+
+                // TODO: Zip dosyasını veya hazırlanmış paketi tekrar imzala (MA3 ile).
+                Log("Zip paketi tekrar imzalandı (taslak).");
+            }
+            catch (Exception ex)
+            {
+                Log("Hata (Tekrar İmzala): " + ex.Message);
+            }
+        }
+
+        private void BtnSendWsdl_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                var url = txtWsdlUrl.Text.Trim();
+                if (string.IsNullOrEmpty(url))
+                {
+                    MessageBox.Show("WSDL/Endpoint adresini girin.");
+                    return;
+                }
+
+                // TODO: SoapClient/Service Reference ile paketi gönder.
+                // Şirket kodu / kullanıcı adı / şifre alanlarını burada kullan.
+                // var company = txtCompanyCode.Text.Trim();
+                // var user = txtUsername.Text.Trim();
+                // var pass = txtPassword.Text;
+
+                Log("WSDL ile gönderim tamamlandı (taslak).");
+                MessageBox.Show("Gönderim tamamlandı (taslak).");
+            }
+            catch (Exception ex)
+            {
+                Log("Hata (WSDL Gönder): " + ex.Message);
+            }
+        }
+
+        private void Log(string msg)
+        {
+            txtLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {msg}{Environment.NewLine}");
         }
     }
 }

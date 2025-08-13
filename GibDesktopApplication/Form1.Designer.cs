@@ -1,4 +1,6 @@
-﻿namespace GibDesktopApplication
+﻿using System.Windows.Forms;
+
+namespace GibDesktopApplication
 {
     partial class Form1
     {
@@ -6,6 +8,32 @@
         /// Required designer variable.
         /// </summary>
         private System.ComponentModel.IContainer components = null;
+
+        // Controls
+        private GroupBox grpService;
+        private Label lblCompanyCode, lblUsername, lblPassword;
+        private TextBox txtUsername, txtPassword;
+
+        private GroupBox grpFile;
+        private Label lblSelectedFile;
+        private Button btnBrowse;
+
+        private GroupBox grpSign;
+        private Button btnSign;
+
+        private GroupBox grpPreview;
+        private TextBox txtSignedXml;
+
+        private GroupBox grpZipAndSend;
+        private Button btnZip, btnReSign, btnSendWsdl;
+        private Label lblWsdlUrl;
+        private TextBox txtWsdlUrl;
+
+        private GroupBox grpLog;
+        private TextBox txtLog;
+        private ProgressBar progress;
+
+        private OpenFileDialog ofd;
 
         /// <summary>
         /// Clean up any resources being used.
@@ -28,99 +56,223 @@
         /// </summary>
         private void InitializeComponent()
         {
-            this.firmCodeLabel = new System.Windows.Forms.Label();
-            this.firmPassword = new System.Windows.Forms.Label();
-            this.firmCodeTextBox = new System.Windows.Forms.TextBox();
-            this.firmPasswordTextBox = new System.Windows.Forms.TextBox();
-            this.groupBox1 = new System.Windows.Forms.GroupBox();
-            this.openFileDialog1 = new System.Windows.Forms.OpenFileDialog();
-            this.loadXmlButton = new System.Windows.Forms.Button();
-            this.getCertificateInfosBtn = new System.Windows.Forms.Button();
-            this.groupBox1.SuspendLayout();
-            this.SuspendLayout();
-            // 
-            // firmCodeLabel
-            // 
-            this.firmCodeLabel.AutoSize = true;
-            this.firmCodeLabel.Location = new System.Drawing.Point(6, 27);
-            this.firmCodeLabel.Name = "firmCodeLabel";
-            this.firmCodeLabel.Size = new System.Drawing.Size(69, 13);
-            this.firmCodeLabel.TabIndex = 0;
-            this.firmCodeLabel.Text = "Firma Kodu : ";
-            // 
-            // firmPassword
-            // 
-            this.firmPassword.AutoSize = true;
-            this.firmPassword.Location = new System.Drawing.Point(6, 51);
-            this.firmPassword.Name = "firmPassword";
-            this.firmPassword.Size = new System.Drawing.Size(72, 13);
-            this.firmPassword.TabIndex = 1;
-            this.firmPassword.Text = "Firma Şifresi : ";
-            // 
-            // firmCodeTextBox
-            // 
-            this.firmCodeTextBox.Location = new System.Drawing.Point(81, 24);
-            this.firmCodeTextBox.Name = "firmCodeTextBox";
-            this.firmCodeTextBox.Size = new System.Drawing.Size(100, 20);
-            this.firmCodeTextBox.TabIndex = 2;
-            // 
-            // firmPasswordTextBox
-            // 
-            this.firmPasswordTextBox.Location = new System.Drawing.Point(81, 48);
-            this.firmPasswordTextBox.Name = "firmPasswordTextBox";
-            this.firmPasswordTextBox.Size = new System.Drawing.Size(100, 20);
-            this.firmPasswordTextBox.TabIndex = 3;
-            // 
-            // groupBox1
-            // 
-            this.groupBox1.Controls.Add(this.firmCodeLabel);
-            this.groupBox1.Controls.Add(this.firmPasswordTextBox);
-            this.groupBox1.Controls.Add(this.firmPassword);
-            this.groupBox1.Controls.Add(this.firmCodeTextBox);
-            this.groupBox1.Location = new System.Drawing.Point(12, 22);
-            this.groupBox1.Name = "groupBox1";
-            this.groupBox1.Size = new System.Drawing.Size(200, 100);
-            this.groupBox1.TabIndex = 4;
-            this.groupBox1.TabStop = false;
-            this.groupBox1.Text = "Firma Bilgileri";
-            // 
-            // openFileDialog1
-            // 
-            this.openFileDialog1.FileName = "openFileDialog1";
-            // 
-            // loadXmlButton
-            // 
-            this.loadXmlButton.Location = new System.Drawing.Point(60, 156);
-            this.loadXmlButton.Name = "loadXmlButton";
-            this.loadXmlButton.Size = new System.Drawing.Size(75, 23);
-            this.loadXmlButton.TabIndex = 5;
-            this.loadXmlButton.Text = "XML Yükle";
-            this.loadXmlButton.UseVisualStyleBackColor = true;
-            this.loadXmlButton.Click += new System.EventHandler(this.loadXmlButton_Click);
-            // 
-            // getCertificateInfosBtn
-            // 
-            this.getCertificateInfosBtn.Location = new System.Drawing.Point(310, 12);
-            this.getCertificateInfosBtn.Name = "getCertificateInfosBtn";
-            this.getCertificateInfosBtn.Size = new System.Drawing.Size(176, 23);
-            this.getCertificateInfosBtn.TabIndex = 6;
-            this.getCertificateInfosBtn.Text = "Sertifika Bilgileri Getir";
-            this.getCertificateInfosBtn.UseVisualStyleBackColor = true;
-            this.getCertificateInfosBtn.Click += new System.EventHandler(this.getCertificateInfosBtn_Click);
-            // 
-            // Form1
-            // 
-            this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
-            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(800, 450);
-            this.Controls.Add(this.getCertificateInfosBtn);
-            this.Controls.Add(this.loadXmlButton);
-            this.Controls.Add(this.groupBox1);
-            this.Name = "Form1";
-            this.Text = "Form1";
-            this.groupBox1.ResumeLayout(false);
-            this.groupBox1.PerformLayout();
-            this.ResumeLayout(false);
+            this.Text = "E-ŞÜ Aylık Rapor İmzalama ve Gönderim Aracı";
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.Width = 1100;
+            this.Height = 800;
+
+            // === Service Credentials ===
+            grpService = new GroupBox
+            {
+                Text = "1) Servis Kimlik Bilgileri",
+                Left = 10,
+                Top = 10,
+                Width = this.ClientSize.Width - 20,
+                Height = 100,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+
+            lblUsername = new Label { Text = "Kullanıcı Adı:", Left = 15, Top = 28, Width = 90 };
+            txtUsername = new TextBox { Left = 110, Top = 24, Width = 200, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+
+            lblPassword = new Label { Text = "Şifre:", Left = 330, Top = 28, Width = 95 };
+            txtPassword = new TextBox { Left = 430, Top = 24, Width = 200, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+
+
+            grpService.Controls.AddRange(new Control[] { 
+                lblUsername, txtUsername, lblPassword, txtPassword
+            });
+
+            // === File Selection ===
+            grpFile = new GroupBox
+            {
+                Text = "2) İmzalanacak Belge",
+                Left = 10,
+                Top = grpService.Bottom + 8,
+                Width = this.ClientSize.Width - 20,
+                Height = 90,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+
+            lblSelectedFile = new Label
+            {
+                Text = "Dosya: (seçilmedi)",
+                Left = 15,
+                Top = 30,
+                Width = grpFile.Width - 200,
+                AutoEllipsis = true,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+
+            btnBrowse = new Button
+            {
+                Text = "Gözat…",
+                Left = grpFile.Width - 110,
+                Top = 25,
+                Width = 90,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            btnBrowse.Click += BtnBrowse_Click;
+
+            grpFile.Controls.AddRange(new Control[] { lblSelectedFile, btnBrowse });
+
+            // === Sign ===
+            grpSign = new GroupBox
+            {
+                Text = "3) İmzala",
+                Left = 10,
+                Top = grpFile.Bottom + 8,
+                Width = this.ClientSize.Width - 20,
+                Height = 70,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+
+            btnSign = new Button
+            {
+                Text = "İMZALA",
+                Left = 15,
+                Top = 25,
+                Width = 120
+            };
+            btnSign.Click += BtnSign_Click;
+
+            grpSign.Controls.Add(btnSign);
+
+            // === Preview Signed XML ===
+            grpPreview = new GroupBox
+            {
+                Text = "4) İmzalı Belge Önizleme",
+                Left = 10,
+                Top = grpSign.Bottom + 8,
+                Width = this.ClientSize.Width - 20,
+                Height = 300,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+
+            txtSignedXml = new TextBox
+            {
+                Left = 15,
+                Top = 25,
+                Width = grpPreview.Width - 30,
+                Height = grpPreview.Height - 35,
+                Multiline = true,
+                ScrollBars = ScrollBars.Both,
+                ReadOnly = true,
+                WordWrap = false,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
+            };
+
+            grpPreview.Controls.Add(txtSignedXml);
+
+            // === Zip + ReSign + Send ===
+            grpZipAndSend = new GroupBox
+            {
+                Text = "5) Zip + Tekrar İmzala   /   6) WSDL ile Gönder",
+                Left = 10,
+                Top = grpPreview.Bottom + 8,
+                Width = this.ClientSize.Width - 20,
+                Height = 100,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+
+            btnZip = new Button
+            {
+                Text = "ZIPLE",
+                Left = 15,
+                Top = 25,
+                Width = 120
+            };
+            btnZip.Click += BtnZip_Click;
+
+            btnReSign = new Button
+            {
+                Text = "TEKRAR İMZALA",
+                Left = btnZip.Right + 10,
+                Top = 25,
+                Width = 140
+            };
+            btnReSign.Click += BtnReSign_Click;
+
+            lblWsdlUrl = new Label { Text = "WSDL/Endpoint:", Left = btnReSign.Right + 20, Top = 31, Width = 100 };
+            txtWsdlUrl = new TextBox
+            {
+                Left = lblWsdlUrl.Right + 8,
+                Top = 27,
+                Width = 350,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                Text = "https://ornek.gov.tr/servis?wsdl" // taslak
+            };
+
+            btnSendWsdl = new Button
+            {
+                Text = "WSDL İLE GÖNDER",
+                Left = grpZipAndSend.Width - 170,
+                Top = 25,
+                Width = 150,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            btnSendWsdl.Click += BtnSendWsdl_Click;
+
+            grpZipAndSend.Controls.AddRange(new Control[] { btnZip, btnReSign, lblWsdlUrl, txtWsdlUrl, btnSendWsdl });
+
+            // === Log & Progress ===
+            grpLog = new GroupBox
+            {
+                Text = "Log",
+                Left = 10,
+                Top = grpZipAndSend.Bottom + 8,
+                Width = this.ClientSize.Width - 20,
+                Height = 120,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
+            };
+
+            txtLog = new TextBox
+            {
+                Left = 15,
+                Top = 25,
+                Width = grpLog.Width - 30,
+                Height = 60,
+                Multiline = true,
+                ReadOnly = true,
+                ScrollBars = ScrollBars.Vertical,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+
+            progress = new ProgressBar
+            {
+                Left = 15,
+                Top = txtLog.Bottom + 10,
+                Width = grpLog.Width - 30,
+                Height = 18,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+
+            grpLog.Controls.AddRange(new Control[] { txtLog, progress });
+
+            // === OpenFileDialog ===
+            ofd = new OpenFileDialog
+            {
+                Filter = "XML Dosyaları (*.xml)|*.xml",
+                Title = "İmzalanacak XML Dosyası Seç"
+            };
+
+            // Add to form
+            this.Controls.AddRange(new Control[]
+            {
+                grpService, grpFile, grpSign, grpPreview, grpZipAndSend, grpLog
+            });
+
+            // Make layout responsive
+            this.Resize += (s, e) =>
+            {
+                lblSelectedFile.Width = grpFile.Width - 200;
+            };
+
+            // Step gating
+            btnSign.Enabled = false;
+            btnZip.Enabled = false;
+            btnReSign.Enabled = false;
+            btnSendWsdl.Enabled = false;
 
         }
 
