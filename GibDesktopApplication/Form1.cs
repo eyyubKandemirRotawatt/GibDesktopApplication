@@ -10,7 +10,7 @@ using tr.gov.tubitak.uekae.esya.api.common.crypto;             // BaseSigner
 using tr.gov.tubitak.uekae.esya.api.common.util;               // LicenseUtil
 using tr.gov.tubitak.uekae.esya.api.xmlsignature;              // XMLSignature, SignedDocument
 using tr.gov.tubitak.uekae.esya.api.xmlsignature.config;       // Context, Config
-using tr.gov.tubitak.uekae.esya.api.xmlsignature.document;     // DOMDocument, InMemoryDocument, Document
+using tr.gov.tubitak.uekae.esya.api.xmlsignature.document;     // InMemoryDocument, Document
 
 namespace GibDesktopApplication
 {
@@ -65,7 +65,7 @@ namespace GibDesktopApplication
                     return;
                 }
 
-                string pin = "060606"; // üretimde kullanıcıdan alın
+                string pin = "060606"; // üretimde PIN'i kullanıcıdan alın
                 BaseSigner signer = scm.getSigner(pin, cert);
                 if (signer == null)
                 {
@@ -73,13 +73,33 @@ namespace GibDesktopApplication
                     return;
                 }
 
-                // 3) Kaynak XML (imzasız) yükle
+                // 3) Kaynak XML'i yükle
                 var sysXml = new XmlDocument();
                 sysXml.PreserveWhitespace = true;
                 sysXml.Load(loadedXmlFilePath);
                 sysXml.Normalize();
 
-                // 4) İmzalanacak veri: InMemoryDocument (DOM ctor sıkıntılarını baypas eder)
+                // 3.a) Kökte yanlışlıkla default ds namespace varsa temizleyin (ÖNEMLİ)
+                // <earsiv:eArsivRaporu ... xmlns="http://www.w3.org/2000/09/xmldsig#"> gibi ise:
+                var defaultNsAttr = sysXml.DocumentElement?.GetAttributeNode("xmlns");
+                if (defaultNsAttr != null && defaultNsAttr.Value == "http://www.w3.org/2000/09/xmldsig#")
+                    sysXml.DocumentElement.Attributes.Remove(defaultNsAttr);
+
+                // 3.b) Kök elemana Id ekle (yoksa)
+                var root = sysXml.DocumentElement;
+                if (root == null)
+                {
+                    MessageBox.Show("Geçersiz XML: kök düğüm bulunamadı.");
+                    return;
+                }
+                if (!root.HasAttribute("Id"))
+                {
+                    var idAttr = sysXml.CreateAttribute("Id");
+                    idAttr.Value = "RaporImzaId";
+                    root.Attributes.Append(idAttr);
+                }
+
+                // 4) Bellek belgesi (opsiyonel; MA3 için şart değil ama dursun)
                 byte[] xmlBytes;
                 using (var msSrc = new MemoryStream())
                 {
@@ -98,10 +118,15 @@ namespace GibDesktopApplication
                 Context context = new Context { Config = new Config(configPath) };
 
                 // 6) İmzayı üret
-                SignedDocument signedDoc = new SignedDocument(context);
-                signedDoc.addDocument(memDoc);
+                var signedDoc = new SignedDocument(context);
 
-                XMLSignature signature = signedDoc.createSignature();
+                // ÖNEMLİ: İmzalanacak düğüm olarak KÖK'ü veriyoruz (enveloped referans otomatik)
+                signedDoc.addXMLNode(root);
+
+                // İstersen memDoc'u da data object olarak ekleyebilirsin (zorunlu değil)
+                 //signedDoc.addDocument(memDoc);
+
+                var signature = signedDoc.createSignature();
                 signature.addKeyInfo(cert);
                 signature.sign(signer);
 
@@ -149,7 +174,7 @@ namespace GibDesktopApplication
                 );
                 var settings = new XmlWriterSettings
                 {
-                    Encoding = new System.Text.UTF8Encoding(false),
+                    Encoding = new UTF8Encoding(false),
                     Indent = false,
                     NewLineHandling = NewLineHandling.None
                 };

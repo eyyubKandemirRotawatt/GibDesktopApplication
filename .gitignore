@@ -377,6 +377,9 @@ FodyWeavers.xsd
 *.rsuser
 *.sln.docstates
 *.user
+*.db
+*.db-shm
+*.db-wal
 
 # Derleme çıktılarını tamamen gizle
 **/bin/
