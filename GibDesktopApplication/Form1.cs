@@ -17,6 +17,7 @@ using tr.gov.tubitak.uekae.esya.api.xmlsignature.document;     // InMemoryDocume
 using System.Security.Cryptography;
 using System.Security.Cryptography.Xml;
 using System.Security.Cryptography.X509Certificates;
+using System.Collections.Generic;
 
 namespace GibDesktopApplication
 {
@@ -324,162 +325,143 @@ namespace GibDesktopApplication
                 progress.Style = ProgressBarStyle.Blocks;
             }
         }
-
         private string CreateSignedSoapMessage()
         {
-            try
-            {
-                // UUID'leri oluştur
-                string timestampId = "TS-" + Guid.NewGuid().ToString("N");
-                string bodyId = "id-" + Guid.NewGuid().ToString("N");
-                string binaryTokenId = "X509-" + Guid.NewGuid().ToString("N");
-                string signatureId = "SIG-" + Guid.NewGuid().ToString("N");
-                string keyInfoId = "KI-" + Guid.NewGuid().ToString("N");
-                string strId = "STR-" + Guid.NewGuid().ToString("N");
+            const string soapNs = "http://www.w3.org/2003/05/soap-envelope";
+            const string wsseNs = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd";
+            const string wsuNs = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd";
+            const string dsNs = "http://www.w3.org/2000/09/xmldsig#";
 
-                // Zaman bilgileri
-                DateTime now = DateTime.UtcNow;
-                DateTime expires = now.AddMinutes(50); // 50 dakika geçerli
-                string created = now.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-                string expiry = expires.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+            string tsId = "TS-" + Guid.NewGuid().ToString("N");
+            string bodyId = "id-" + Guid.NewGuid().ToString("N");
+            string bstId = "X509-" + Guid.NewGuid().ToString("N");
+            string sigId = "SIG-" + Guid.NewGuid().ToString("N");
+            string strId = "STR-" + Guid.NewGuid().ToString("N");
 
-                // ZIP dosyasının adını al (UUID.zip formatında olmalı)
-                string zipFileName = Path.GetFileName(lastZipPath);
+            DateTime now = DateTime.UtcNow;
+            string created = now.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
+            string expires = now.AddMinutes(50).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
 
-                // Sertifika Base64
-                string certBase64 = Convert.ToBase64String(currentCertificate.asX509Certificate2().GetRawCertData());
+            if (string.IsNullOrEmpty(lastZipPath) || string.IsNullOrEmpty(lastZipBase64))
+                throw new InvalidOperationException("Önce ZIP dosyasını oluşturun.");
 
-                // Base SOAP mesajını oluştur (imzasız)
-                string baseSoap = $@"<env:Envelope xmlns:env=""http://www.w3.org/2003/05/soap-envelope"">
-<env:Header>
-<wsse:Security xmlns:wsse=""http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd""
-               xmlns:wsu=""http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd""
-               env:mustUnderstand=""true"">
-<wsse:BinarySecurityToken EncodingType=""http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary""
-                          ValueType=""http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3""
-                          wsu:Id=""{binaryTokenId}"">{certBase64}</wsse:BinarySecurityToken>
-<wsu:Timestamp wsu:Id=""{timestampId}"">
-<wsu:Created>{created}</wsu:Created>
-<wsu:Expires>{expiry}</wsu:Expires>
-</wsu:Timestamp>
-</wsse:Security>
-</env:Header>
-<env:Body xmlns:wsu=""http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd""
-          wsu:Id=""{bodyId}"">
-<ns2:sendDocumentFile xmlns:ns2=""http://earsiv.vedop3.ggm.gov.org/"">
-<Attachment>
-<fileName>{zipFileName}</fileName>
-<binaryData>{lastZipBase64}</binaryData>
-</Attachment>
-</ns2:sendDocumentFile>
-</env:Body>
+            // BST için sertifika baytları (özel anahtar gerekmez)
+            byte[] certBytes;
+            try { certBytes = currentCertificate.asX509Certificate2().RawData; }
+            catch { certBytes = currentCertificate.getEncoded(); }
+            string certBase64 = Convert.ToBase64String(certBytes);
+            string zipFileName = Path.GetFileName(lastZipPath);
+
+            // 1) İmzasız SOAP
+            string xml = $@"
+<env:Envelope xmlns:env=""{soapNs}"">
+  <env:Header>
+    <wsse:Security xmlns:wsse=""{wsseNs}"" xmlns:wsu=""{wsuNs}"" env:mustUnderstand=""true"">
+      <wsse:BinarySecurityToken wsu:Id=""{bstId}""
+        EncodingType=""http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary""
+        ValueType=""http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3"">{certBase64}</wsse:BinarySecurityToken>
+      <wsu:Timestamp wsu:Id=""{tsId}"">
+        <wsu:Created>{created}</wsu:Created>
+        <wsu:Expires>{expires}</wsu:Expires>
+      </wsu:Timestamp>
+    </wsse:Security>
+  </env:Header>
+  <env:Body xmlns:wsu=""{wsuNs}"" wsu:Id=""{bodyId}"">
+    <ns2:sendDocumentFile xmlns:ns2=""http://earsiv.vedop3.ggm.gov.org/"">
+      <Attachment>
+        <fileName>{zipFileName}</fileName>
+        <binaryData>{lastZipBase64}</binaryData>
+      </Attachment>
+    </ns2:sendDocumentFile>
+  </env:Body>
 </env:Envelope>";
 
-                // Base SOAP'ı XML olarak yükle
-                var soapDoc = new XmlDocument();
-                soapDoc.PreserveWhitespace = true;
-                soapDoc.LoadXml(baseSoap);
+            var soapDoc = new XmlDocument { PreserveWhitespace = true };
+            soapDoc.LoadXml(xml);
 
-                // MA3 ile imzalama
-                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-                string configPath = Path.Combine(baseDir, "config", "xmlsignature-config.xml");
-                Context context = new Context { Config = new Config(configPath) };
+            var nsmgr = new XmlNamespaceManager(soapDoc.NameTable);
+            nsmgr.AddNamespace("env", soapNs);
+            nsmgr.AddNamespace("wsse", wsseNs);
+            nsmgr.AddNamespace("wsu", wsuNs);
+            nsmgr.AddNamespace("ds", dsNs);
 
-                var signedDoc = new SignedDocument(context);
+            // 2) Timestamp ve Body’ye DÜZ 'Id' ekle (MA3’nin referans çözümü için kritik)
+            var tsEl = soapDoc.SelectSingleNode($"//wsu:Timestamp[@wsu:Id='{tsId}']", nsmgr) as XmlElement
+                         ?? throw new Exception("Timestamp bulunamadı.");
+            var bodyEl = soapDoc.SelectSingleNode($"//env:Body[@wsu:Id='{bodyId}']", nsmgr) as XmlElement
+                         ?? throw new Exception("Body bulunamadı.");
 
-                // İmzalanacak elementleri ekle: Timestamp ve Body
-                var nsmgr = new XmlNamespaceManager(soapDoc.NameTable);
-                nsmgr.AddNamespace("env", "http://www.w3.org/2003/05/soap-envelope");
-                nsmgr.AddNamespace("wsse", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd");
-                nsmgr.AddNamespace("wsu", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd");
+            tsEl.SetAttribute("Id", tsId);      // <... Id="TS-...">
+            bodyEl.SetAttribute("Id", bodyId);  // <... Id="id-...">
 
-                var timestampElement = soapDoc.SelectSingleNode($"//wsu:Timestamp[@wsu:Id='{timestampId}']", nsmgr) as XmlElement;
-                var bodyElement = soapDoc.SelectSingleNode($"//env:Body[@wsu:Id='{bodyId}']", nsmgr) as XmlElement;
+            // 3) MA3 ile WS-Security imzası (kart üzerinde)
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string configPath = Path.Combine(baseDir, "config", "xmlsignature-config.xml");
+            var context = new Context { Config = new Config(configPath) };
+            var signedDoc = new SignedDocument(context);
 
-                if (timestampElement == null || bodyElement == null)
-                {
-                    throw new Exception("Timestamp veya Body elementi bulunamadı.");
-                }
+            // İmzalanacak düğümler: Timestamp + Body (artık düz Id’leri de var)
+            signedDoc.addXMLNode(tsEl);
+            signedDoc.addXMLNode(bodyEl);
 
-                // İmzalanacak düğümleri ekle
-                signedDoc.addXMLNode(timestampElement);
-                signedDoc.addXMLNode(bodyElement);
+            var sig = signedDoc.createSignature();
+            sig.addKeyInfo(currentCertificate);   // KeyInfo’yu az sonra STR/DirectReference’a çevireceğiz
+            sig.sign(currentSigner);              // İmza kart üzerinde (RSA-SHA256; C14N config’ten gelir)
 
-                // İmzayı oluştur
-                var signature = signedDoc.createSignature();
-
-                // KeyInfo'yu DirectReference olarak ayarla
-                signature.addKeyInfo(currentCertificate);
-
-                // Canonicalization ve Signature algoritmaları (belge gereksinimlerine göre)
-                // Not: MA3 kütüphanesinde bu ayarlar config dosyasından kontrol edilebilir
-
-                signature.sign(currentSigner);
-
-                // İmzalı dökümanı geçici XML'e al
-                var tempSignedDoc = new XmlDocument();
-                tempSignedDoc.PreserveWhitespace = true;
-                using (var ms = new MemoryStream())
-                {
-                    signedDoc.write(ms);
-                    ms.Position = 0;
-                    tempSignedDoc.Load(ms);
-                }
-
-                // İmzayı orijinal SOAP'a taşı
-                var signatureElement = tempSignedDoc.GetElementsByTagName("Signature", "http://www.w3.org/2000/09/xmldsig#")
-                                                   .Item(0) as XmlElement;
-
-                if (signatureElement == null)
-                {
-                    throw new Exception("İmza elementi oluşturulamadı.");
-                }
-
-                // Security header'ına imzayı ekle
-                var securityElement = soapDoc.SelectSingleNode("//wsse:Security", nsmgr) as XmlElement;
-                if (securityElement == null)
-                {
-                    throw new Exception("Security elementi bulunamadı.");
-                }
-
-                // İmza ID'sini ayarla
-                signatureElement.SetAttribute("Id", signatureId);
-
-                // KeyInfo elementini düzenle (DirectReference için ID'leri ekle)
-                var dsNsmgr = new XmlNamespaceManager(signatureElement.OwnerDocument.NameTable);
-                dsNsmgr.AddNamespace("ds", "http://www.w3.org/2000/09/xmldsig#");
-                dsNsmgr.AddNamespace("wsse", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd");
-                dsNsmgr.AddNamespace("wsu", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd");
-
-                var keyInfoElement = signatureElement.SelectSingleNode("ds:KeyInfo", dsNsmgr) as XmlElement;
-
-                if (keyInfoElement != null)
-                {
-                    keyInfoElement.SetAttribute("Id", keyInfoId);
-
-                    // SecurityTokenReference ekle (keyInfoElement'in belgesinde oluştur)
-                    var keyInfoDoc = keyInfoElement.OwnerDocument;
-                    var secTokenRef = keyInfoDoc.CreateElement("wsse", "SecurityTokenReference", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd");
-                    secTokenRef.SetAttribute("Id", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd", strId);
-
-                    var reference = keyInfoDoc.CreateElement("wsse", "Reference", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd");
-                    reference.SetAttribute("URI", "#" + binaryTokenId);
-                    reference.SetAttribute("ValueType", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3");
-
-                    secTokenRef.AppendChild(reference);
-                    keyInfoElement.AppendChild(secTokenRef);
-                }
-
-                // İmzayı import et ve Security header'ına ekle
-                var importedSignature = soapDoc.ImportNode(signatureElement, true);
-                securityElement.InsertAfter(importedSignature, securityElement.SelectSingleNode("wsse:BinarySecurityToken", nsmgr));
-
-                return soapDoc.OuterXml;
-            }
-            catch (Exception ex)
+            // 4) ds:Signature’ı al
+            var temp = new XmlDocument { PreserveWhitespace = true };
+            using (var ms = new MemoryStream())
             {
-                throw new Exception($"SOAP mesajı oluşturulurken hata: {ex.Message}", ex);
+                signedDoc.write(ms);
+                ms.Position = 0;
+                temp.Load(ms);
             }
+            var signatureEl = temp.GetElementsByTagName("Signature", dsNs).Item(0) as XmlElement
+                              ?? throw new Exception("Signature oluşturulamadı.");
+
+            // 5) KeyInfo → STR (DirectReference → BST). XAdES/ds:Object bloklarını silmeyin.
+            var oldKi = signatureEl.SelectSingleNode("ds:KeyInfo", nsmgr);
+            if (oldKi != null) oldKi.ParentNode.RemoveChild(oldKi);
+
+            var kiEl = temp.CreateElement("ds", "KeyInfo", dsNs);
+            var strEl = temp.CreateElement("wsse", "SecurityTokenReference", wsseNs);
+            strEl.SetAttribute("Id", wsuNs, strId);
+            var refEl = temp.CreateElement("wsse", "Reference", wsseNs);
+            refEl.SetAttribute("URI", "#" + bstId);
+            refEl.SetAttribute("ValueType", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3");
+            strEl.AppendChild(refEl);
+            kiEl.AppendChild(strEl);
+            signatureEl.AppendChild(kiEl);
+
+            signatureEl.SetAttribute("Id", sigId);
+
+            // 6) Referansları LOG’la – #TS-… ve #id-… gerçekten geldi mi?
+            var refs = signatureEl.SelectNodes("ds:SignedInfo/ds:Reference", nsmgr);
+            bool hasTs = false, hasBody = false;
+            if (refs != null)
+            {
+                foreach (XmlElement r in refs)
+                {
+                    var uri = r.GetAttribute("URI");
+                    if (uri == "#" + tsId) hasTs = true;
+                    if (uri == "#" + bodyId) hasBody = true;
+                    var dm = r.SelectSingleNode("ds:DigestMethod", nsmgr) as XmlElement;
+                    if (!string.Equals(dm?.GetAttribute("Algorithm"), "http://www.w3.org/2001/04/xmlenc#sha256", StringComparison.Ordinal))
+                        Log("Uyarı: DigestMethod SHA-256 değil.");
+                }
+            }
+            Log($"WSSE kontrol: TS ref={(hasTs ? "VAR" : "YOK")}, Body ref={(hasBody ? "VAR" : "YOK")}, toplam ref={refs?.Count}");
+
+            // 7) İmzayı wsse:Security altına (BST sonrası) ekle
+            var securityEl = soapDoc.SelectSingleNode("//wsse:Security", nsmgr) as XmlElement
+                             ?? throw new Exception("wsse:Security bulunamadı.");
+            var bstNode = soapDoc.SelectSingleNode("//wsse:Security/wsse:BinarySecurityToken", nsmgr) as XmlElement;
+
+            var importedSig = soapDoc.ImportNode(signatureEl, true);
+            if (bstNode != null) securityEl.InsertAfter(importedSig, bstNode);
+            else securityEl.AppendChild(importedSig);
+
+            return soapDoc.OuterXml;
         }
 
         private void BtnSendWsdl_Click(object sender, EventArgs e)
@@ -542,4 +524,19 @@ namespace GibDesktopApplication
             txtLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {msg}{Environment.NewLine}");
         }
     }
+
+    public class WsuSignedXml : SignedXml
+    {
+        private const string WsuNs = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd";
+        public WsuSignedXml(XmlDocument document) : base(document) { }
+        public override XmlElement GetIdElement(XmlDocument document, string idValue)
+        {
+            var e = base.GetIdElement(document, idValue);
+            if (e != null) return e;
+            var nsmgr = new XmlNamespaceManager(document.NameTable);
+            nsmgr.AddNamespace("wsu", WsuNs);
+            return document.SelectSingleNode($"//*[@wsu:Id='{idValue}']", nsmgr) as XmlElement;
+        }
+    }
+
 }

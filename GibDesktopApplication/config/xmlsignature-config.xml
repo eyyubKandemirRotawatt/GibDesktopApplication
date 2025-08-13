@@ -37,6 +37,8 @@
         <digest-alg>SHA-256</digest-alg>
 		<ocsp-digest-algorithm>SHA-256</ocsp-digest-algorithm>
 	    <signature-method Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+	    <canonicalization-method Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+	    <reference-transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
 	</algorithms>
 
     <validation>
