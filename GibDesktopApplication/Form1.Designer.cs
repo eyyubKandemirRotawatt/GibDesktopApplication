@@ -200,7 +200,7 @@ namespace GibDesktopApplication
                 Top = 27,
                 Width = 350,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                Text = "https://ornek.gov.tr/servis?wsdl" // taslak
+                Text = "https://okctest.gib.gov.tr/okcesu/services/EArsivWsPort/earsiv.wsdl" // taslak
             };
 
             btnSendWsdl = new Button

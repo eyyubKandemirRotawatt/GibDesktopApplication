@@ -18,6 +18,9 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.Xml;
 using System.Security.Cryptography.X509Certificates;
 using System.Collections.Generic;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
 
 namespace GibDesktopApplication
 {
@@ -327,17 +330,20 @@ namespace GibDesktopApplication
         }
         private string CreateSignedSoapMessage()
         {
+            // Namespaces
             const string soapNs = "http://www.w3.org/2003/05/soap-envelope";
             const string wsseNs = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd";
             const string wsuNs = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd";
             const string dsNs = "http://www.w3.org/2000/09/xmldsig#";
 
+            // IDs
             string tsId = "TS-" + Guid.NewGuid().ToString("N");
             string bodyId = "id-" + Guid.NewGuid().ToString("N");
             string bstId = "X509-" + Guid.NewGuid().ToString("N");
             string sigId = "SIG-" + Guid.NewGuid().ToString("N");
             string strId = "STR-" + Guid.NewGuid().ToString("N");
 
+            // Time
             DateTime now = DateTime.UtcNow;
             string created = now.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
             string expires = now.AddMinutes(50).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
@@ -345,15 +351,15 @@ namespace GibDesktopApplication
             if (string.IsNullOrEmpty(lastZipPath) || string.IsNullOrEmpty(lastZipBase64))
                 throw new InvalidOperationException("Önce ZIP dosyasını oluşturun.");
 
-            // BST için sertifika baytları (özel anahtar gerekmez)
+            // BST içeriği (sertifika)
             byte[] certBytes;
             try { certBytes = currentCertificate.asX509Certificate2().RawData; }
             catch { certBytes = currentCertificate.getEncoded(); }
             string certBase64 = Convert.ToBase64String(certBytes);
             string zipFileName = Path.GetFileName(lastZipPath);
 
-            // 1) İmzasız SOAP
-            string xml = $@"
+            // 1) İmzasız SOAP zarfını hazırla
+            string unsignedSoap = $@"
 <env:Envelope xmlns:env=""{soapNs}"">
   <env:Header>
     <wsse:Security xmlns:wsse=""{wsseNs}"" xmlns:wsu=""{wsuNs}"" env:mustUnderstand=""true"">
@@ -377,38 +383,38 @@ namespace GibDesktopApplication
 </env:Envelope>";
 
             var soapDoc = new XmlDocument { PreserveWhitespace = true };
-            soapDoc.LoadXml(xml);
+            soapDoc.LoadXml(unsignedSoap);
 
+            // NS Manager (soapDoc)
             var nsmgr = new XmlNamespaceManager(soapDoc.NameTable);
             nsmgr.AddNamespace("env", soapNs);
             nsmgr.AddNamespace("wsse", wsseNs);
             nsmgr.AddNamespace("wsu", wsuNs);
             nsmgr.AddNamespace("ds", dsNs);
 
-            // 2) Timestamp ve Body’ye DÜZ 'Id' ekle (MA3’nin referans çözümü için kritik)
+            // 2) wsu:Id yanında düz 'Id' ekle (MA3 referans çözümü için)
             var tsEl = soapDoc.SelectSingleNode($"//wsu:Timestamp[@wsu:Id='{tsId}']", nsmgr) as XmlElement
-                         ?? throw new Exception("Timestamp bulunamadı.");
+                       ?? throw new Exception("Timestamp bulunamadı.");
             var bodyEl = soapDoc.SelectSingleNode($"//env:Body[@wsu:Id='{bodyId}']", nsmgr) as XmlElement
                          ?? throw new Exception("Body bulunamadı.");
 
             tsEl.SetAttribute("Id", tsId);      // <... Id="TS-...">
             bodyEl.SetAttribute("Id", bodyId);  // <... Id="id-...">
 
-            // 3) MA3 ile WS-Security imzası (kart üzerinde)
+            // 3) MA3 ile WS-Security imzasını üret (Timestamp + Body)
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
             string configPath = Path.Combine(baseDir, "config", "xmlsignature-config.xml");
             var context = new Context { Config = new Config(configPath) };
             var signedDoc = new SignedDocument(context);
 
-            // İmzalanacak düğümler: Timestamp + Body (artık düz Id’leri de var)
             signedDoc.addXMLNode(tsEl);
             signedDoc.addXMLNode(bodyEl);
 
             var sig = signedDoc.createSignature();
-            sig.addKeyInfo(currentCertificate);   // KeyInfo’yu az sonra STR/DirectReference’a çevireceğiz
-            sig.sign(currentSigner);              // İmza kart üzerinde (RSA-SHA256; C14N config’ten gelir)
+            sig.addKeyInfo(currentCertificate);  // KeyInfo'yu sonra STR/DirectReference'a çevireceğiz
+            sig.sign(currentSigner);
 
-            // 4) ds:Signature’ı al
+            // 4) Geçici dokümana imzalı çıktıyı yükle
             var temp = new XmlDocument { PreserveWhitespace = true };
             using (var ms = new MemoryStream())
             {
@@ -416,27 +422,55 @@ namespace GibDesktopApplication
                 ms.Position = 0;
                 temp.Load(ms);
             }
+
             var signatureEl = temp.GetElementsByTagName("Signature", dsNs).Item(0) as XmlElement
                               ?? throw new Exception("Signature oluşturulamadı.");
 
-            // 5) KeyInfo → STR (DirectReference → BST). XAdES/ds:Object bloklarını silmeyin.
-            var oldKi = signatureEl.SelectSingleNode("ds:KeyInfo", nsmgr);
+            // temp için NS Manager
+            var nsTemp = new XmlNamespaceManager(temp.NameTable);
+            nsTemp.AddNamespace("ds", dsNs);
+            nsTemp.AddNamespace("wsse", wsseNs);
+            nsTemp.AddNamespace("wsu", wsuNs);
+
+            // 5) KeyInfo → STR (DirectReference → BST); sıra: SignedInfo → SignatureValue → KeyInfo → Object*
+            var oldKi = signatureEl.SelectSingleNode("ds:KeyInfo", nsTemp);
             if (oldKi != null) oldKi.ParentNode.RemoveChild(oldKi);
 
             var kiEl = temp.CreateElement("ds", "KeyInfo", dsNs);
             var strEl = temp.CreateElement("wsse", "SecurityTokenReference", wsseNs);
             strEl.SetAttribute("Id", wsuNs, strId);
+
             var refEl = temp.CreateElement("wsse", "Reference", wsseNs);
             refEl.SetAttribute("URI", "#" + bstId);
             refEl.SetAttribute("ValueType", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3");
             strEl.AppendChild(refEl);
             kiEl.AppendChild(strEl);
-            signatureEl.AppendChild(kiEl);
 
+            var sigValueEl = signatureEl.SelectSingleNode("ds:SignatureValue", nsTemp)
+                           ?? throw new Exception("SignatureValue bulunamadı.");
+            signatureEl.InsertAfter(kiEl, sigValueEl);
+
+            // Imza Id'si
             signatureEl.SetAttribute("Id", sigId);
 
-            // 6) Referansları LOG’la – #TS-… ve #id-… gerçekten geldi mi?
-            var refs = signatureEl.SelectNodes("ds:SignedInfo/ds:Reference", nsmgr);
+            // 5.a) XAdES QualifyingProperties/@Target = #SIG-...
+            var nsMgrXades = new XmlNamespaceManager(temp.NameTable);
+            nsMgrXades.AddNamespace("ds", dsNs);
+            nsMgrXades.AddNamespace("xades", "http://uri.etsi.org/01903/v1.3.2#");
+
+            XmlElement qp = signatureEl.SelectSingleNode("ds:Object/xades:QualifyingProperties", nsMgrXades) as XmlElement;
+            if (qp == null)
+            {
+                // Bazı kütüphanelerde 1.4.1 kullanılıyor
+                nsMgrXades.RemoveNamespace("xades", "http://uri.etsi.org/01903/v1.3.2#");
+                nsMgrXades.AddNamespace("xades", "http://uri.etsi.org/01903/v1.4.1#");
+                qp = signatureEl.SelectSingleNode("ds:Object/xades:QualifyingProperties", nsMgrXades) as XmlElement;
+            }
+            if (qp != null)
+                qp.SetAttribute("Target", "#" + sigId);
+
+            // 6) Referansları kontrol için logla (opsiyonel)
+            var refs = signatureEl.SelectNodes("ds:SignedInfo/ds:Reference", nsTemp);
             bool hasTs = false, hasBody = false;
             if (refs != null)
             {
@@ -445,14 +479,18 @@ namespace GibDesktopApplication
                     var uri = r.GetAttribute("URI");
                     if (uri == "#" + tsId) hasTs = true;
                     if (uri == "#" + bodyId) hasBody = true;
-                    var dm = r.SelectSingleNode("ds:DigestMethod", nsmgr) as XmlElement;
-                    if (!string.Equals(dm?.GetAttribute("Algorithm"), "http://www.w3.org/2001/04/xmlenc#sha256", StringComparison.Ordinal))
+
+                    var dm = r.SelectSingleNode("ds:DigestMethod", nsTemp) as XmlElement;
+                    if (!string.Equals(dm?.GetAttribute("Algorithm"),
+                        "http://www.w3.org/2001/04/xmlenc#sha256", StringComparison.Ordinal))
+                    {
                         Log("Uyarı: DigestMethod SHA-256 değil.");
+                    }
                 }
             }
             Log($"WSSE kontrol: TS ref={(hasTs ? "VAR" : "YOK")}, Body ref={(hasBody ? "VAR" : "YOK")}, toplam ref={refs?.Count}");
 
-            // 7) İmzayı wsse:Security altına (BST sonrası) ekle
+            // 7) İmzayı wsse:Security altına (BST sonrasına) taşı
             var securityEl = soapDoc.SelectSingleNode("//wsse:Security", nsmgr) as XmlElement
                              ?? throw new Exception("wsse:Security bulunamadı.");
             var bstNode = soapDoc.SelectSingleNode("//wsse:Security/wsse:BinarySecurityToken", nsmgr) as XmlElement;
@@ -461,52 +499,48 @@ namespace GibDesktopApplication
             if (bstNode != null) securityEl.InsertAfter(importedSig, bstNode);
             else securityEl.AppendChild(importedSig);
 
+            // 8) Son hali döndür
             return soapDoc.OuterXml;
         }
 
-        private void BtnSendWsdl_Click(object sender, EventArgs e)
+        private async void BtnSendWsdl_Click(object sender, EventArgs e)
         {
             try
             {
-                var url = txtWsdlUrl.Text.Trim();
-                if (string.IsNullOrEmpty(url))
+                var urlInput = txtWsdlUrl.Text.Trim();
+                if (string.IsNullOrWhiteSpace(urlInput))
                 {
                     MessageBox.Show("WSDL/Endpoint adresini girin.");
                     return;
                 }
 
-                if (string.IsNullOrEmpty(lastSoapXml))
+                if (string.IsNullOrWhiteSpace(lastSoapXml))
                 {
-                    MessageBox.Show("Önce SOAP mesajını imzalayın (Tekrar İmzala butonuna basın).");
+                    MessageBox.Show("Önce SOAP mesajını imzalayın (Tekrar İmzala).");
                     return;
                 }
 
+                // Kullanıcı/şifre (Basic Auth)
+                var user = txtUsername.Text.Trim();
+                var pass = txtPassword.Text;
+
                 progress.Style = ProgressBarStyle.Marquee;
-                Log("SOAP mesajı gönderiliyor...");
 
-                // Gerçek SOAP gönderimi için HttpClient veya WebRequest kullanılabilir
-                // Burada örnek implementasyon:
+                // WSDL → Endpoint normalizasyonu
+                var endpoint = NormalizeEndpointUrl(urlInput);
+                Log($"Gönderim Endpoints: {endpoint}");
 
-                /*
-                using (var client = new HttpClient())
-                {
-                    client.DefaultRequestHeaders.Add("SOAPAction", "sendDocumentFile");
-                    var content = new StringContent(lastSoapXml, Encoding.UTF8, "application/soap+xml");
-                    var response = await client.PostAsync(url, content);
-                    var responseText = await response.Content.ReadAsStringAsync();
-                    
-                    Log($"SOAP Response: {response.StatusCode}");
-                    Log($"Response Content: {responseText}");
-                    
-                    // getBatchStatus ile durumu sorgulama kodu da eklenebilir
-                }
-                */
+                // Gönder
+                Log("SOAP gönderimi başlıyor...");
+                await SendSoapAsync(endpoint, lastSoapXml, user, pass);
 
-                Log($"SOAP mesajı hazır. Endpoint: {url}");
-                Log("Not: Gerçek gönderim için HttpClient implementasyonu ekleyin.");
-
-                MessageBox.Show("SOAP mesajı hazır. Gerçek gönderim için HttpClient kodu ekleyin.", "Bilgi",
+                MessageBox.Show("Gönderim tamamlandı. Log’a ve yanıt dosyasına bakabilirsiniz.", "Bilgi",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (HttpRequestException hre)
+            {
+                Log("HTTP Hatası: " + hre.Message);
+                MessageBox.Show("HTTP hatası: " + hre.Message, "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             catch (Exception ex)
             {
@@ -522,6 +556,123 @@ namespace GibDesktopApplication
         private void Log(string msg)
         {
             txtLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {msg}{Environment.NewLine}");
+        }
+
+        private async Task SendSoapAsync(string endpointUrl, string soapXml, string username, string password)
+        {
+            using (var client = CreateSoapHttpClient(TimeSpan.FromMinutes(3)))
+            {
+                var contentType = "application/soap+xml; charset=utf-8; action=\"sendDocumentFile\"";
+
+                using (var content = new StringContent(soapXml, Encoding.UTF8, "application/soap+xml"))
+                {
+                    content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse(contentType);
+
+                    // Basic Auth
+                    if (!string.IsNullOrWhiteSpace(username) || !string.IsNullOrWhiteSpace(password))
+                    {
+                        client.DefaultRequestHeaders.Authorization =
+                            System.Net.Http.Headers.AuthenticationHeaderValue.Parse(BuildBasicAuthHeader(username, password));
+                    }
+
+                    try
+                    {
+                        // POST
+                        var resp = await client.PostAsync(endpointUrl, content);
+                        var respText = await resp.Content.ReadAsStringAsync();
+
+                        Log($"HTTP Status: {(int)resp.StatusCode} {resp.ReasonPhrase}");
+                        Log("Response Content (ilk 4 KB):");
+                        Log(respText.Length > 4096 ? respText.Substring(0, 4096) + " ... (kısaltıldı)" : respText);
+
+                        // Yanıtı dosyaya yaz
+                        var folder = Path.GetDirectoryName(lastZipPath) ?? Environment.CurrentDirectory;
+                        var respPath = Path.Combine(folder,
+                            "sendDocumentFile-response-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".xml");
+                        File.WriteAllText(respPath, respText, Encoding.UTF8);
+                        Log("Yanıt dosyaya kaydedildi: " + respPath);
+
+                        // 415 durumunda 'action' parametresi olmadan tekrar dene (opsiyonel)
+                        if ((int)resp.StatusCode == 415)
+                        {
+                            Log(
+                                "Uyarı: 415 Unsupported Media Type aldı. 'action' parametresi olmadan tekrar deniyor...");
+
+                            using (var content2 = new StringContent(soapXml, Encoding.UTF8, "application/soap+xml"))
+                            {
+                                client.DefaultRequestHeaders.Remove("Authorization");
+                                if (!string.IsNullOrWhiteSpace(username) || !string.IsNullOrWhiteSpace(password))
+                                {
+                                    client.DefaultRequestHeaders.Authorization =
+                                        AuthenticationHeaderValue.Parse(
+                                            BuildBasicAuthHeader(username, password));
+                                }
+
+                                var resp2 = await client.PostAsync(endpointUrl, content2);
+                                var txt2 = await resp2.Content.ReadAsStringAsync();
+                                Log($"Tekrar Deneme Status: {(int)resp2.StatusCode} {resp2.ReasonPhrase}");
+                                Log(txt2.Length > 4096 ? txt2.Substring(0, 4096) + " ... (kısaltıldı)" : txt2);
+                            }
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(e);
+                        throw;
+                    }
+                }
+            }
+        }
+
+
+        private static string NormalizeEndpointUrl(string inputUrl)
+        {
+            if (string.IsNullOrWhiteSpace(inputUrl)) return inputUrl;
+
+            // .../earsiv.wsdl → .../EArsivWsPort
+            if (inputUrl.EndsWith("earsiv.wsdl", StringComparison.OrdinalIgnoreCase))
+                return inputUrl.Substring(0, inputUrl.Length - "earsiv.wsdl".Length).TrimEnd('/');
+
+            // ...?wsdl → ?wsdl'siz
+            var u = new Uri(inputUrl, UriKind.Absolute);
+            var builder = new UriBuilder(u) { Query = "" };
+            var normalized = builder.Uri.ToString();
+
+            // Çoğunlukla servis portu uç noktası: .../EArsivWsPort
+            // Eğer zaten .../EArsivWsPort ise dokunma
+            if (normalized.EndsWith("/EArsivWsPort", StringComparison.OrdinalIgnoreCase))
+                return normalized.TrimEnd('/');
+
+            // Çok spesifik olmadan trailing slash’ı sil
+            return normalized.TrimEnd('/');
+        }
+
+        private static string BuildBasicAuthHeader(string username, string password)
+        {
+            var raw = $"{username}:{password}";
+            var b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(raw));
+            return $"Basic {b64}";
+        }
+
+        private static HttpClient CreateSoapHttpClient(TimeSpan? timeout = null)
+        {
+            var handler = new HttpClientHandler
+            {
+                AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate,
+                // Test ortamında zincir hatası alıyorsanız kök/ara test sertifikalarını OS’a ekleyin.
+                // Geçici bypass (ÜRETİMDE KULLANMAYIN):
+                ServerCertificateCustomValidationCallback = (m, c, ch, e) => true
+            };
+
+            var client = new HttpClient(handler)
+            {
+                Timeout = timeout ?? TimeSpan.FromMinutes(2)
+            };
+
+            // Bazı sunucularda 100-continue gecikmesi yaşanabiliyor
+            client.DefaultRequestHeaders.ExpectContinue = false;
+
+            return client;
         }
     }
 
