@@ -127,12 +127,6 @@ namespace GibDesktopApplication
                     MessageBox.Show("Geçersiz XML: kök düğüm bulunamadı.");
                     return;
                 }
-                if (!root.HasAttribute("Id"))
-                {
-                    var idAttr = sysXml.CreateAttribute("Id");
-                    idAttr.Value = "RaporImzaId";
-                    root.Attributes.Append(idAttr);
-                }
 
                 // 4) (Opsiyonel) InMemoryDocument
                 byte[] xmlBytes;
