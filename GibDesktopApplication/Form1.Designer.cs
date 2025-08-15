@@ -214,7 +214,56 @@ namespace GibDesktopApplication
             };
             btnSendWsdl.Click += BtnSendWsdl_Click;
 
-            grpZipAndSend.Controls.AddRange(new Control[] { btnZip, btnReSign, lblWsdlUrl, txtWsdlUrl, btnSendWsdl });
+            // getBatchStatus butonu (Gönder'in soluna)
+            btnGetBatchStatus = new Button
+            {
+                Text = "Durumu Sorgula (getBatchStatus)",
+                Width = 210,
+                Top = 25,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+
+            // Gönder butonunun soluna 10px boşlukla hizala
+            btnGetBatchStatus.Left = btnSendWsdl.Left - btnGetBatchStatus.Width - 10;
+
+            grpZipAndSend.Controls.AddRange(new Control[] { btnZip, btnReSign, lblWsdlUrl, txtWsdlUrl, btnGetBatchStatus, btnSendWsdl });
+
+            // === Standalone Status Check ===
+            grpStatus = new GroupBox
+            {
+                Text = "7) Durumu Sorgula (getBatchStatus)",
+                Left = 10,
+                Top = grpZipAndSend.Bottom + 8,
+                Width = this.ClientSize.Width - 20,
+                Height = 80,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+
+            var lblStatus = new Label { Text = "Paket Adı (UUID.zip):", Left = 15, Top = 32, Width = 150 };
+            txtStatusFileName = new TextBox
+            {
+                Left = lblStatus.Right + 8,
+                Top = 28,
+                Width = 320,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left
+            };
+
+            btnGetBatchStatus = new Button
+            {
+                Text = "Durumu Sorgula",
+                Width = 150,
+                Left = txtStatusFileName.Right + 10,
+                Top = 26,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left
+            };
+            btnGetBatchStatus.Click += btnGetBatchStatus_Click;
+
+            grpStatus.Controls.AddRange(new Control[] { lblStatus, txtStatusFileName, btnGetBatchStatus });
+
+
+            // forma ekle
+            this.Controls.Add(grpStatus);
+
 
             // === Log & Progress ===
             grpLog = new GroupBox
@@ -226,6 +275,8 @@ namespace GibDesktopApplication
                 Height = 140,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
             };
+            grpLog.Top = grpStatus.Bottom + 8;
+
 
             txtLog = new TextBox
             {
@@ -288,6 +339,10 @@ namespace GibDesktopApplication
         private System.Windows.Forms.OpenFileDialog openFileDialog1;
         private System.Windows.Forms.Button loadXmlButton;
         private System.Windows.Forms.Button getCertificateInfosBtn;
+        private GroupBox grpStatus;
+        private TextBox txtStatusFileName;
+        private Button btnGetBatchStatus;
+
     }
 }
 

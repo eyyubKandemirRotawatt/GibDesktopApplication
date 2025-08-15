@@ -675,6 +675,291 @@ namespace GibDesktopApplication
             client.DefaultRequestHeaders.ExpectContinue = false;
             return client;
         }
+
+
+        private async void btnGetBatchStatus_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                // Endpoint normalize
+                var endpointInput = txtWsdlUrl.Text?.Trim();
+                if (string.IsNullOrWhiteSpace(endpointInput))
+                {
+                    MessageBox.Show("WSDL/Endpoint adresini girin.", "Uyarı",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                var endpoint = NormalizeEndpointUrl(endpointInput);
+
+                // paketId (UUID.zip) – textbox yoksa popup
+                string paketId = null;
+                var tb = this.Controls.Find("txtStatusFileName", true);
+                if (tb?.Length > 0 && tb[0] is TextBox tbox) paketId = tbox.Text.Trim();
+                if (string.IsNullOrWhiteSpace(paketId))
+                    paketId = PromptForText(this, "Paket Id", "Sorgulanacak paket adını girin (UUID.zip):");
+                if (string.IsNullOrWhiteSpace(paketId))
+                {
+                    Log("getBatchStatus: paketId verilmedi.");
+                    return;
+                }
+                if (!paketId.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                    paketId += ".zip";
+
+                // Basic Auth
+                var user = txtUsername.Text?.Trim();
+                var pass = txtPassword.Text;
+
+                // >>> Karttan DOĞRU sertifikayı al
+                var x509 = GetX509FromSmartCard();
+                Log($"Kart Sertifikası: Subject={x509.Subject}; Issuer={x509.Issuer}");
+                var vkn = ExtractVknFromSubject(x509);
+                if (!string.IsNullOrEmpty(vkn)) Log($"Kart VKN (SERIALNUMBER) = {vkn}");
+
+                progress.Style = ProgressBarStyle.Marquee;
+
+                // İmzalı zarfı oluştur ve gönder
+                var soapGet = CreateSignedSoapMessage_GetBatchStatus(paketId, x509);
+                lastSoapXml = soapGet; // debug için sakla
+
+                Log("getBatchStatus çağrısı gönderiliyor...");
+                await SendSoapAsync(endpoint, soapGet, user, pass, "getBatchStatus");
+            }
+            catch (Exception ex)
+            {
+                Log("Hata (getBatchStatus): " + ex.Message);
+                MessageBox.Show(ex.Message, "getBatchStatus Hatası",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                progress.Style = ProgressBarStyle.Blocks;
+            }
+        }
+
+        private X509Certificate2 GetX509FromSmartCard()
+        {
+            // 1) Karttan ECertificate al
+            SmartCardManager scm = SmartCardManager.getInstance();
+            ECertificate eCert = scm.getSignatureCertificate(false, false);
+            if (eCert == null)
+                throw new Exception("Kartta Mali Mühür sertifikası bulunamadı (ECertificate=null).");
+
+            // 2) Thumbprint üzerinden Windows Store’da özel anahtarlı X509 eşini bul
+            var x509 = ResolveX509FromStore(eCert);
+            if (x509 == null || !x509.HasPrivateKey)
+                throw new Exception("Kart sertifikasının Windows eşlemesi bulunamadı veya özel anahtar yok.");
+
+            return x509;
+        }
+
+        private static string ExtractVknFromSubject(X509Certificate2 x509)
+        {
+            // SUBJECT içinde SERIALNUMBER=VKN (10 hane) olarak gelir (kurumsal Mali Mühür)
+            var subj = x509.Subject ?? "";
+            var m = System.Text.RegularExpressions.Regex.Match(
+                subj, @"SERIALNUMBER\s*=\s*(\d{10,11})",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return m.Success ? m.Groups[1].Value : null;
+        }
+
+        private static bool IsMaliMuhur(X509Certificate2 c)
+        {
+            if (c == null || !c.HasPrivateKey) return false;
+            var issuer = (c.Issuer ?? "").ToLowerInvariant();
+            return issuer.Contains("mali mühür") || issuer.Contains("mali muhur");
+        }
+
+        private static X509Certificate2 SelectMaliMuhurCertificate()
+        {
+            var selectable = new X509Certificate2Collection();
+
+            using (var cu = new X509Store(StoreName.My, StoreLocation.CurrentUser))
+            {
+                cu.Open(OpenFlags.ReadOnly | OpenFlags.OpenExistingOnly);
+                foreach (var c in cu.Certificates) if (IsMaliMuhur(c)) selectable.Add(c);
+            }
+            using (var lm = new X509Store(StoreName.My, StoreLocation.LocalMachine))
+            {
+                lm.Open(OpenFlags.ReadOnly | OpenFlags.OpenExistingOnly);
+                foreach (var c in lm.Certificates) if (IsMaliMuhur(c)) selectable.Add(c);
+            }
+
+            if (selectable.Count == 0)
+                throw new Exception("Mali Mühür sertifikası bulunamadı. Kart takılı mı, AKİS kurulu mu?");
+
+            var sel = X509Certificate2UI.SelectFromCollection(
+                selectable, "Sertifika Seçimi", "Mali Mühür sertifikanızı seçin.", X509SelectionFlag.SingleSelection);
+
+            if (sel == null || sel.Count == 0)
+                throw new Exception("Sertifika seçimi iptal edildi.");
+
+            return sel[0];
+        }
+
+        private static string PromptForText(IWin32Window owner, string title, string label, string defaultText = "")
+        {
+            using (var f = new Form())
+            using (var lbl = new Label())
+            using (var tb = new TextBox())
+            using (var ok = new Button())
+            using (var cancel = new Button())
+            {
+                f.Text = title;
+                f.FormBorderStyle = FormBorderStyle.FixedDialog;
+                f.StartPosition = FormStartPosition.CenterParent;
+                f.MinimizeBox = false; f.MaximizeBox = false;
+                f.Width = 480; f.Height = 160;
+
+                lbl.Text = label; lbl.Left = 12; lbl.Top = 12; lbl.Width = 440;
+                tb.Left = 12; tb.Top = 36; tb.Width = 440; tb.Text = defaultText;
+
+                ok.Text = "Tamam"; ok.Left = 266; ok.Top = 72; ok.Width = 90; ok.DialogResult = DialogResult.OK;
+                cancel.Text = "İptal"; cancel.Left = 362; cancel.Top = 72; cancel.Width = 90; cancel.DialogResult = DialogResult.Cancel;
+
+                f.Controls.AddRange(new Control[] { lbl, tb, ok, cancel });
+                f.AcceptButton = ok; f.CancelButton = cancel;
+
+                return f.ShowDialog(owner) == DialogResult.OK ? tb.Text.Trim() : null;
+            }
+        }
+
+        private string CreateSignedSoapMessage_GetBatchStatus(string paketId, X509Certificate2 x509)
+        {
+            const string soap12Ns = "http://www.w3.org/2003/05/soap-envelope";
+            const string wsseNs = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd";
+            const string wsuNs = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd";
+            const string dsNs = "http://www.w3.org/2000/09/xmldsig#";
+            const string tnNs = "http://earsiv.vedop3.ggm.gov.org/";
+
+            if (string.IsNullOrWhiteSpace(paketId))
+                throw new ArgumentException("paketId boş olamaz.");
+            if (!paketId.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                paketId += ".zip";
+            if (x509 == null || !x509.HasPrivateKey)
+                throw new Exception("Seçilen sertifikanın özel anahtarı yok.");
+
+            string tsId = "TS-" + Guid.NewGuid().ToString("N");
+            string bodyId = "id-" + Guid.NewGuid().ToString("N");
+            string bstId = "X509-" + Guid.NewGuid().ToString("N");
+            string sigId = "SIG-" + Guid.NewGuid().ToString("N");
+
+            var now = DateTime.UtcNow;
+            string created = now.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
+            string expires = now.AddMinutes(50).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
+
+            string certBase64 = Convert.ToBase64String(x509.RawData);
+
+            // SOAP 1.2 zarfı (paketId alanına dikkat!)
+            string unsignedSoap = $@"
+<env:Envelope xmlns:env=""{soap12Ns}"">
+  <env:Header>
+    <wsse:Security xmlns:wsse=""{wsseNs}"" xmlns:wsu=""{wsuNs}"" env:mustUnderstand=""true"">
+      <wsse:BinarySecurityToken
+        wsu:Id=""{bstId}""
+        EncodingType=""http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary""
+        ValueType=""http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3"">{certBase64}</wsse:BinarySecurityToken>
+      <wsu:Timestamp wsu:Id=""{tsId}"">
+        <wsu:Created>{created}</wsu:Created>
+        <wsu:Expires>{expires}</wsu:Expires>
+      </wsu:Timestamp>
+    </wsse:Security>
+  </env:Header>
+  <env:Body xmlns:wsu=""{wsuNs}"" wsu:Id=""{bodyId}"">
+    <ns2:getBatchStatus xmlns:ns2=""{tnNs}"">
+      <paketId>{System.Security.SecurityElement.Escape(paketId)}</paketId>
+    </ns2:getBatchStatus>
+  </env:Body>
+</env:Envelope>";
+
+            var soapDoc = new XmlDocument { PreserveWhitespace = true };
+            soapDoc.LoadXml(unsignedSoap);
+
+            var nsmgr = new XmlNamespaceManager(soapDoc.NameTable);
+            nsmgr.AddNamespace("env", soap12Ns);
+            nsmgr.AddNamespace("wsse", wsseNs);
+            nsmgr.AddNamespace("wsu", wsuNs);
+            nsmgr.AddNamespace("ds", dsNs);
+
+            // .NET SignedXml (Exclusive C14N + RSA-SHA256; Digest SHA-1)
+            var signedXml = new WsuSignedXml(soapDoc) { SigningKey = x509.GetRSAPrivateKey() };
+            signedXml.SignedInfo.CanonicalizationMethod = SignedXml.XmlDsigExcC14NTransformUrl;
+            signedXml.SignedInfo.SignatureMethod = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256";
+
+            var rTs = new Reference("#" + tsId) { DigestMethod = SignedXml.XmlDsigSHA1Url };
+            rTs.AddTransform(new XmlDsigExcC14NTransform());
+            signedXml.AddReference(rTs);
+
+            var rBody = new Reference("#" + bodyId) { DigestMethod = SignedXml.XmlDsigSHA1Url };
+            rBody.AddTransform(new XmlDsigExcC14NTransform());
+            signedXml.AddReference(rBody);
+
+            // KeyInfo = STR DirectReference → BST
+            var ki = new KeyInfo();
+            var strNode = soapDoc.CreateElement("wsse", "SecurityTokenReference", wsseNs);
+            var refEl = soapDoc.CreateElement("wsse", "Reference", wsseNs);
+            refEl.SetAttribute("URI", "#" + bstId);
+            refEl.SetAttribute("ValueType", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509v3");
+            strNode.AppendChild(refEl);
+            ki.AddClause(new KeyInfoNode(strNode));
+            signedXml.KeyInfo = ki;
+
+            signedXml.ComputeSignature();
+            var sigXml = signedXml.GetXml();
+            sigXml.SetAttribute("Id", sigId); // opsiyonel ama faydalı
+
+            // Sıra: BST → Signature → Timestamp (GİB örneğiyle uyumlu)
+            var securityEl = soapDoc.SelectSingleNode("//wsse:Security", nsmgr) as XmlElement
+                             ?? throw new Exception("wsse:Security bulunamadı.");
+            var bstNode = soapDoc.SelectSingleNode("//wsse:Security/wsse:BinarySecurityToken", nsmgr) as XmlElement;
+
+            if (bstNode != null) securityEl.InsertAfter(sigXml, bstNode);
+            else securityEl.AppendChild(sigXml);
+
+            return soapDoc.OuterXml;
+        }
+
+        private async Task SendSoapAsync(string endpointUrl, string soapXml, string username, string password, string soapAction)
+        {
+            using (var client = CreateSoapHttpClient(TimeSpan.FromMinutes(3)))
+            {
+                var contentType = $"application/soap+xml; charset=utf-8; action=\"{soapAction}\"";
+                using (var content = new StringContent(soapXml, Encoding.UTF8, "application/soap+xml"))
+                {
+                    content.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
+
+                    if (!string.IsNullOrWhiteSpace(username) || !string.IsNullOrWhiteSpace(password))
+                    {
+                        client.DefaultRequestHeaders.Authorization =
+                            AuthenticationHeaderValue.Parse(BuildBasicAuthHeader(username, password));
+                    }
+
+                    var resp = await client.PostAsync(endpointUrl, content);
+                    var respText = await resp.Content.ReadAsStringAsync();
+
+                    Log($"HTTP Status: {(int)resp.StatusCode} {resp.ReasonPhrase}");
+                    Log("Response Content (ilk 4 KB):");
+                    Log(respText.Length > 4096 ? respText.Substring(0, 4096) + " ... (kısaltıldı)" : respText);
+
+                    // Kayıt klasörü: lastZipPath yoksa Desktop'a yaz
+                    string folder = Path.GetDirectoryName(lastZipPath);
+                    if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+                        folder = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+
+                    var respPath = Path.Combine(folder, $"{soapAction}-response-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".xml");
+                    File.WriteAllText(respPath, respText, Encoding.UTF8);
+                    Log("Yanıt dosyaya kaydedildi: " + respPath);
+
+                    if (soapAction.Equals("getBatchStatus", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var low = respText.ToLowerInvariant();
+                        if (low.Contains("30") && (low.Contains("başar") || low.Contains("basar")))
+                            Log("getBatchStatus: Başarı kodu (30) tespit edildi.");
+                        else
+                            Log("getBatchStatus: 30/basarılı ibaresi bulunamadı; içeriği inceleyin.");
+                    }
+                }
+            }
+        }
     }
 
     public class WsuSignedXml : SignedXml
