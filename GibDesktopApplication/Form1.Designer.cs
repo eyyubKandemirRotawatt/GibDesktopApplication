@@ -74,10 +74,11 @@ namespace GibDesktopApplication
 
             lblUsername = new Label { Text = "Kullanıcı Adı:", Left = 15, Top = 28, Width = 90 };
             txtUsername = new TextBox { Left = 110, Top = 24, Width = 200, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            txtUsername.Text = "J134";
 
             lblPassword = new Label { Text = "Şifre:", Left = 330, Top = 28, Width = 95 };
             txtPassword = new TextBox { Left = 430, Top = 24, Width = 200, Anchor = AnchorStyles.Top | AnchorStyles.Left };
-
+            txtPassword.Text = "cS9084qK";
 
             grpService.Controls.AddRange(new Control[] { 
                 lblUsername, txtUsername, lblPassword, txtPassword

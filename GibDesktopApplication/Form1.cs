@@ -255,9 +255,9 @@ namespace GibDesktopApplication
                 }
 
                 // İmzalı dosya adı (örn: GUID.xml) -> ZIP = GUID.zip
-                string signedFileName = Path.GetFileName(lastSignedXmlPath);
-                string zipFileName = Path.GetFileNameWithoutExtension(lastSignedXmlPath) + ".zip";
-                string zipPath = Path.Combine(Path.GetDirectoryName(lastSignedXmlPath) ?? Environment.CurrentDirectory, zipFileName);
+                string signedFileName = Path.GetFileName(selectedFilePath);
+                string zipFileName = Path.GetFileNameWithoutExtension(selectedFilePath) + ".zip";
+                string zipPath = Path.Combine(Path.GetDirectoryName(selectedFilePath) ?? Environment.CurrentDirectory, zipFileName);
 
                 // Tek dosyalı ZIP (entry adı imzalı dosyayla aynı)
                 using (var zip = ZipFile.Open(zipPath, ZipArchiveMode.Create))
