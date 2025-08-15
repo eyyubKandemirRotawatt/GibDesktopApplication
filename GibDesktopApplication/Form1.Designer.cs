@@ -1,4 +1,5 @@
-﻿using System.Windows.Forms;
+﻿using System.Drawing;
+using System.Windows.Forms;
 
 namespace GibDesktopApplication
 {
@@ -275,7 +276,8 @@ namespace GibDesktopApplication
             btnZip.Enabled = false;
             btnReSign.Enabled = false;
             btnSendWsdl.Enabled = false;
-
+            this.AutoScroll = true;
+            this.AutoScrollMinSize = new Size(0, grpLog.Bottom + 20);
         }
 
         #endregion
