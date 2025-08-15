@@ -201,7 +201,8 @@ namespace GibDesktopApplication
                 Top = 27,
                 Width = 350,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                Text = "https://okctest.gib.gov.tr/okcesu/services/EArsivWsPort/earsiv.wsdl" // taslak
+                Text = "https://okctest.gib.gov.tr/okcesu/services/EArsivWsPort/earsiv.wsdl",  // taslak
+                Enabled = false
             };
 
             btnSendWsdl = new Button
@@ -223,7 +224,7 @@ namespace GibDesktopApplication
                 Left = 10,
                 Top = grpZipAndSend.Bottom + 8,
                 Width = this.ClientSize.Width - 20,
-                Height = 120,
+                Height = 140,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
             };
 
@@ -232,7 +233,7 @@ namespace GibDesktopApplication
                 Left = 15,
                 Top = 25,
                 Width = grpLog.Width - 30,
-                Height = 60,
+                Height = 100,
                 Multiline = true,
                 ReadOnly = true,
                 ScrollBars = ScrollBars.Vertical,
