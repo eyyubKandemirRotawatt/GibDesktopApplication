@@ -183,6 +183,12 @@
       <DependentUpon>Form1.cs</DependentUpon>
     </Compile>
     <Compile Include="Managers\SmartCardManager.cs" />
+    <Compile Include="PinPromptForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="PinPromptForm.Designer.cs">
+      <DependentUpon>PinPromptForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <EmbeddedResource Include="Form1.resx">

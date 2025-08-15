@@ -97,12 +97,55 @@ namespace GibDesktopApplication
                     return;
                 }
 
-                string pin = "060606"; // ÜRETİMDE: kullanıcıdan al
-                BaseSigner signer = scm.getSigner(pin, cert);
-                if (signer == null)
+                string pin;
+                using (var pinDlg = new PinPromptForm())
                 {
-                    MessageBox.Show("Signer oluşturulamadı!");
-                    return;
+                    var res = pinDlg.ShowDialog(this);
+                    if (res != DialogResult.OK)
+                    {
+                        progress.Style = ProgressBarStyle.Blocks;
+                        Log("Kullanıcı PIN girişini iptal etti.");
+                        return;
+                    }
+                    pin = pinDlg.Pin;
+                }
+
+
+                // PIN ile signer oluştur (gerekirse birkaç deneme)
+                BaseSigner signer = null;
+                for (int attempt = 1; attempt <= 3; attempt++)
+                {
+                    try
+                    {
+                        signer = scm.getSigner(pin, cert);
+                        if (signer != null) break;
+                    }
+                    catch (Exception ex)
+                    {
+                        // Kart sürücüsü bazı hataları exception olarak atabilir
+                        if (attempt == 3)
+                            throw new Exception("PIN doğrulanamadı veya kart erişimi başarısız.", ex);
+                    }
+
+                    if (signer == null)
+                    {
+                        if (attempt == 3)
+                            throw new Exception("PIN hatalı veya signer oluşturulamadı (3 deneme).");
+                        // Tekrar sor
+                        using (var pinDlg2 = new PinPromptForm())
+                        {
+                            MessageBox.Show("PIN hatalı. Lütfen tekrar girin.", "Uyarı",
+                                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            var res2 = pinDlg2.ShowDialog(this);
+                            if (res2 != DialogResult.OK)
+                            {
+                                progress.Style = ProgressBarStyle.Blocks;
+                                Log("Kullanıcı PIN girişini iptal etti.");
+                                return;
+                            }
+                            pin = pinDlg2.Pin;
+                        }
+                    }
                 }
 
                 // Sertifika ve signer'ı sakla (SOAP imzalama için)
