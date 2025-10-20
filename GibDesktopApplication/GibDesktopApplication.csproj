@@ -183,6 +183,9 @@
       <DependentUpon>Form1.cs</DependentUpon>
     </Compile>
     <Compile Include="Managers\SmartCardManager.cs" />
+    <Compile Include="ModernControls.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="PinPromptForm.cs">
       <SubType>Form</SubType>
     </Compile>

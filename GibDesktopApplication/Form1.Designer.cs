@@ -11,26 +11,26 @@ namespace GibDesktopApplication
         private System.ComponentModel.IContainer components = null;
 
         // Controls
-        private GroupBox grpService;
+        private ModernCard grpService;
         private Label lblCompanyCode, lblUsername, lblPassword;
-        private TextBox txtUsername, txtPassword;
+        private ModernTextBox txtUsername, txtPassword;
 
-        private GroupBox grpFile;
+        private ModernCard grpFile;
         private Label lblSelectedFile;
-        private Button btnBrowse;
+        private ModernButton btnBrowse;
 
-        private GroupBox grpSign;
-        private Button btnSign;
+        private ModernCard grpSign;
+        private ModernButton btnSign;
 
-        private GroupBox grpPreview;
+        private ModernCard grpPreview;
         private TextBox txtSignedXml;
 
-        private GroupBox grpZipAndSend;
-        private Button btnZip, btnReSign, btnSendWsdl;
+        private ModernCard grpZipAndSend;
+        private ModernButton btnZip, btnReSign, btnSendWsdl;
         private Label lblWsdlUrl;
         private TextBox txtWsdlUrl;
 
-        private GroupBox grpLog;
+        private ModernCard grpLog;
         private TextBox txtLog;
         private ProgressBar progress;
 
@@ -57,249 +57,372 @@ namespace GibDesktopApplication
         /// </summary>
         private void InitializeComponent()
         {
+            // Modern color palette
+            var primaryColor = Color.FromArgb(41, 128, 185);      // Modern blue
+            var secondaryColor = Color.FromArgb(52, 152, 219);    // Light blue
+            var successColor = Color.FromArgb(46, 204, 113);      // Green
+            var warningColor = Color.FromArgb(241, 196, 15);      // Yellow
+            var dangerColor = Color.FromArgb(231, 76, 60);        // Red
+            var darkText = Color.FromArgb(44, 62, 80);            // Dark gray
+            var lightBg = Color.FromArgb(236, 240, 241);          // Light gray bg
+            var white = Color.White;
+
+            // Form settings
             this.Text = "E-ŞÜ Aylık Rapor İmzalama ve Gönderim Aracı";
             this.StartPosition = FormStartPosition.CenterScreen;
-            this.Width = 1100;
-            this.Height = 800;
+            this.Width = 1200;
+            this.Height = 850;
+            this.BackColor = lightBg;
+            this.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
 
             // === Service Credentials ===
-            grpService = new GroupBox
+            grpService = new ModernCard
             {
-                Text = "1) Servis Kimlik Bilgileri",
-                Left = 10,
-                Top = 10,
-                Width = this.ClientSize.Width - 20,
-                Height = 100,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+                Left = 25,
+                Top = 20,
+                Width = this.ClientSize.Width - 50,
+                Height = 110,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = white
             };
 
-            lblUsername = new Label { Text = "Kullanıcı Adı:", Left = 15, Top = 28, Width = 90 };
-            txtUsername = new TextBox { Left = 110, Top = 24, Width = 200, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            var headerService = new SectionHeader {
+                Text = "🔑 Servis Kimlik Bilgileri",
+                Left = 10,
+                Top = 10
+            };
 
-            lblPassword = new Label { Text = "Şifre:", Left = 330, Top = 28, Width = 95 };
-            txtPassword = new TextBox { Left = 430, Top = 24, Width = 200, Anchor = AnchorStyles.Top | AnchorStyles.Left };
+            lblUsername = new Label {
+                Text = "Kullanıcı Adı:",
+                Left = 20,
+                Top = 50,
+                Width = 100,
+                Font = new Font("Segoe UI", 9F),
+                ForeColor = darkText
+            };
+            txtUsername = new ModernTextBox {
+                Left = 125,
+                Top = 48,
+                Width = 220,
+                Height = 32,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left,
+                Font = new Font("Segoe UI", 9.5F),
+                BorderStyle = BorderStyle.FixedSingle
+            };
 
-            grpService.Controls.AddRange(new Control[] { 
-                lblUsername, txtUsername, lblPassword, txtPassword
+            lblPassword = new Label {
+                Text = "Şifre:",
+                Left = 380,
+                Top = 50,
+                Width = 80,
+                Font = new Font("Segoe UI", 9F),
+                ForeColor = darkText
+            };
+            txtPassword = new ModernTextBox {
+                Left = 455,
+                Top = 48,
+                Width = 220,
+                Height = 32,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left,
+                Font = new Font("Segoe UI", 9.5F),
+                UseSystemPasswordChar = true,
+                BorderStyle = BorderStyle.FixedSingle
+            };
+
+            grpService.Controls.AddRange(new Control[] {
+                headerService, lblUsername, txtUsername, lblPassword, txtPassword
             });
 
             // === File Selection ===
-            grpFile = new GroupBox
+            grpFile = new ModernCard
             {
-                Text = "2) İmzalanacak Belge",
+                Left = 25,
+                Top = grpService.Bottom + 20,
+                Width = this.ClientSize.Width - 50,
+                Height = 105,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = white
+            };
+
+            var headerFile = new SectionHeader {
+                Text = "📄 İmzalanacak Belge",
                 Left = 10,
-                Top = grpService.Bottom + 8,
-                Width = this.ClientSize.Width - 20,
-                Height = 90,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+                Top = 10
             };
 
             lblSelectedFile = new Label
             {
                 Text = "Dosya: (seçilmedi)",
-                Left = 15,
-                Top = 30,
-                Width = grpFile.Width - 200,
+                Left = 20,
+                Top = 50,
+                Width = grpFile.Width - 270,
                 AutoEllipsis = true,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                Font = new Font("Segoe UI", 9F),
+                ForeColor = Color.FromArgb(127, 140, 141)
             };
 
-            btnBrowse = new Button
+            btnBrowse = new ModernButton
             {
-                Text = "Gözat…",
-                Left = grpFile.Width - 110,
-                Top = 25,
-                Width = 90,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
+                Text = "📁 Gözat",
+                Left = grpFile.Width - 160,
+                Top = 45,
+                Width = 130,
+                Height = 38,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                ForeColor = white,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold)
             };
+            btnBrowse.SetColors(secondaryColor, Color.FromArgb(44, 139, 196));
             btnBrowse.Click += BtnBrowse_Click;
 
-            grpFile.Controls.AddRange(new Control[] { lblSelectedFile, btnBrowse });
+            grpFile.Controls.AddRange(new Control[] { headerFile, lblSelectedFile, btnBrowse });
 
             // === Sign ===
-            grpSign = new GroupBox
+            grpSign = new ModernCard
             {
-                Text = "3) İmzala",
-                Left = 10,
-                Top = grpFile.Bottom + 8,
-                Width = this.ClientSize.Width - 20,
-                Height = 70,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+                Left = 25,
+                Top = grpFile.Bottom + 20,
+                Width = this.ClientSize.Width - 50,
+                Height = 95,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = white
             };
 
-            btnSign = new Button
-            {
-                Text = "İMZALA",
-                Left = 15,
-                Top = 25,
-                Width = 120
+            var headerSign = new SectionHeader {
+                Text = "✍ İmzalama",
+                Left = 10,
+                Top = 10
             };
+
+            btnSign = new ModernButton
+            {
+                Text = "🔐 İMZALA",
+                Left = 20,
+                Top = 45,
+                Width = 180,
+                Height = 40,
+                ForeColor = white,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
+            };
+            btnSign.SetColors(successColor, Color.FromArgb(39, 174, 96));
             btnSign.Click += BtnSign_Click;
 
-            grpSign.Controls.Add(btnSign);
+            grpSign.Controls.AddRange(new Control[] { headerSign, btnSign });
 
             // === Preview Signed XML ===
-            grpPreview = new GroupBox
+            grpPreview = new ModernCard
             {
-                Text = "4) İmzalı Belge Önizleme",
+                Left = 25,
+                Top = grpSign.Bottom + 20,
+                Width = this.ClientSize.Width - 50,
+                Height = 250,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = white
+            };
+
+            var headerPreview = new SectionHeader {
+                Text = "👁 İmzalı Belge Önizleme",
                 Left = 10,
-                Top = grpSign.Bottom + 8,
-                Width = this.ClientSize.Width - 20,
-                Height = 300,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+                Top = 10
             };
 
             txtSignedXml = new TextBox
             {
                 Left = 15,
-                Top = 25,
-                Width = grpPreview.Width - 30,
-                Height = grpPreview.Height - 35,
+                Top = 45,
+                Width = grpPreview.Width - 45,
+                Height = grpPreview.Height - 70,
                 Multiline = true,
                 ScrollBars = ScrollBars.Both,
                 ReadOnly = true,
                 WordWrap = false,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
+                Font = new Font("Consolas", 8.5F),
+                BackColor = Color.FromArgb(248, 249, 250),
+                BorderStyle = BorderStyle.None
             };
 
-            grpPreview.Controls.Add(txtSignedXml);
+            grpPreview.Controls.AddRange(new Control[] { headerPreview, txtSignedXml });
 
             // === Zip + ReSign + Send ===
-            grpZipAndSend = new GroupBox
+            grpZipAndSend = new ModernCard
             {
-                Text = "5) Zip + Tekrar İmzala   /   6) WSDL ile Gönder",
-                Left = 10,
-                Top = grpPreview.Bottom + 8,
-                Width = this.ClientSize.Width - 20,
-                Height = 100,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+                Left = 25,
+                Top = grpPreview.Bottom + 20,
+                Width = this.ClientSize.Width - 50,
+                Height = 125,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = white
             };
 
-            btnZip = new Button
-            {
-                Text = "ZIPLE",
-                Left = 15,
-                Top = 25,
-                Width = 120
+            var headerZip = new SectionHeader {
+                Text = "📦 Zip ve Gönderim",
+                Left = 10,
+                Top = 10
             };
+
+            btnZip = new ModernButton
+            {
+                Text = "🗜 ZIPLE",
+                Left = 20,
+                Top = 45,
+                Width = 130,
+                Height = 38,
+                ForeColor = white,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold)
+            };
+            btnZip.SetColors(primaryColor, Color.FromArgb(36, 113, 163));
             btnZip.Click += BtnZip_Click;
 
-            btnReSign = new Button
+            btnReSign = new ModernButton
             {
-                Text = "TEKRAR İMZALA",
-                Left = btnZip.Right + 10,
-                Top = 25,
-                Width = 140
+                Text = "🔄 TEKRAR İMZALA",
+                Left = btnZip.Right + 15,
+                Top = 45,
+                Width = 170,
+                Height = 38,
+                ForeColor = white,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold)
             };
+            btnReSign.SetColors(warningColor, Color.FromArgb(243, 156, 18));
             btnReSign.Click += BtnReSign_Click;
 
-            lblWsdlUrl = new Label { Text = "WSDL/Endpoint:", Left = btnReSign.Right + 20, Top = 31, Width = 100 };
+            lblWsdlUrl = new Label {
+                Text = "Endpoint:",
+                Left = 20,
+                Top = 93,
+                Width = 80,
+                Font = new Font("Segoe UI", 9F),
+                ForeColor = darkText
+            };
             txtWsdlUrl = new TextBox
             {
-                Left = lblWsdlUrl.Right + 8,
-                Top = 27,
-                Width = 350,
+                Left = 100,
+                Top = 90,
+                Width = 480,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                Text = "https://okctest.gib.gov.tr/okcesu/services/EArsivWsPort/earsiv.wsdl",  // taslak
-                Enabled = false
+                Text = "https://okctest.gib.gov.tr/okcesu/services/EArsivWsPort/earsiv.wsdl",
+                Enabled = false,
+                Font = new Font("Segoe UI", 8.5F),
+                BorderStyle = BorderStyle.FixedSingle,
+                BackColor = Color.FromArgb(245, 245, 245)
             };
 
-            btnSendWsdl = new Button
+            btnSendWsdl = new ModernButton
             {
-                Text = "WSDL İLE GÖNDER",
-                Left = grpZipAndSend.Width - 170,
-                Top = 25,
-                Width = 150,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
+                Text = "📤 WSDL İLE GÖNDER",
+                Left = grpZipAndSend.Width - 205,
+                Top = 45,
+                Width = 180,
+                Height = 38,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                ForeColor = white,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold)
             };
+            btnSendWsdl.SetColors(successColor, Color.FromArgb(39, 174, 96));
             btnSendWsdl.Click += BtnSendWsdl_Click;
 
-            // getBatchStatus butonu (Gönder'in soluna)
-            btnGetBatchStatus = new Button
-            {
-                Text = "Durumu Sorgula (getBatchStatus)",
-                Width = 210,
-                Top = 25,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
-            };
-
-            // Gönder butonunun soluna 10px boşlukla hizala
-            btnGetBatchStatus.Left = btnSendWsdl.Left - btnGetBatchStatus.Width - 10;
-
-            grpZipAndSend.Controls.AddRange(new Control[] { btnZip, btnReSign, lblWsdlUrl, txtWsdlUrl, btnGetBatchStatus, btnSendWsdl });
+            grpZipAndSend.Controls.AddRange(new Control[] { headerZip, btnZip, btnReSign, lblWsdlUrl, txtWsdlUrl, btnSendWsdl });
 
             // === Standalone Status Check ===
-            grpStatus = new GroupBox
+            grpStatus = new ModernCard
             {
-                Text = "7) Durumu Sorgula (getBatchStatus)",
+                Left = 25,
+                Top = grpZipAndSend.Bottom + 20,
+                Width = this.ClientSize.Width - 50,
+                Height = 105,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = white
+            };
+
+            var headerStatus = new SectionHeader {
+                Text = "🔍 Durumu Sorgula",
                 Left = 10,
-                Top = grpZipAndSend.Bottom + 8,
-                Width = this.ClientSize.Width - 20,
-                Height = 80,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+                Top = 10
             };
 
-            var lblStatus = new Label { Text = "Paket Adı (UUID.zip):", Left = 15, Top = 32, Width = 150 };
-            txtStatusFileName = new TextBox
-            {
-                Left = lblStatus.Right + 8,
-                Top = 28,
-                Width = 320,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left
-            };
-
-            btnGetBatchStatus = new Button
-            {
-                Text = "Durumu Sorgula",
+            var lblStatus = new Label {
+                Text = "Paket Adı (UUID.zip):",
+                Left = 20,
+                Top = 52,
                 Width = 150,
-                Left = txtStatusFileName.Right + 10,
-                Top = 26,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left
+                Font = new Font("Segoe UI", 9F),
+                ForeColor = darkText
             };
+            txtStatusFileName = new ModernTextBox
+            {
+                Left = lblStatus.Right + 10,
+                Top = 50,
+                Width = 350,
+                Height = 32,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left,
+                Font = new Font("Segoe UI", 9.5F),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+
+            btnGetBatchStatus = new ModernButton
+            {
+                Text = "🔍 Sorgula",
+                Width = 140,
+                Height = 38,
+                Left = txtStatusFileName.Right + 15,
+                Top = 47,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left,
+                ForeColor = white,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold)
+            };
+            btnGetBatchStatus.SetColors(primaryColor, Color.FromArgb(36, 113, 163));
             btnGetBatchStatus.Click += btnGetBatchStatus_Click;
 
-            grpStatus.Controls.AddRange(new Control[] { lblStatus, txtStatusFileName, btnGetBatchStatus });
-
+            grpStatus.Controls.AddRange(new Control[] { headerStatus, lblStatus, txtStatusFileName, btnGetBatchStatus });
 
             // forma ekle
             this.Controls.Add(grpStatus);
 
-
             // === Log & Progress ===
-            grpLog = new GroupBox
+            grpLog = new ModernCard
             {
-                Text = "Log",
-                Left = 10,
-                Top = grpZipAndSend.Bottom + 8,
-                Width = this.ClientSize.Width - 20,
-                Height = 140,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
+                Left = 25,
+                Top = grpStatus.Bottom + 20,
+                Width = this.ClientSize.Width - 50,
+                Height = 180,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
+                BackColor = white
             };
-            grpLog.Top = grpStatus.Bottom + 8;
 
+            var headerLog = new SectionHeader {
+                Text = "📋 İşlem Günlüğü",
+                Left = 10,
+                Top = 10
+            };
 
             txtLog = new TextBox
             {
                 Left = 15,
-                Top = 25,
-                Width = grpLog.Width - 30,
+                Top = 45,
+                Width = grpLog.Width - 45,
                 Height = 100,
                 Multiline = true,
                 ReadOnly = true,
                 ScrollBars = ScrollBars.Vertical,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
+                Font = new Font("Consolas", 8.5F),
+                BackColor = Color.FromArgb(248, 249, 250),
+                BorderStyle = BorderStyle.None
             };
 
             progress = new ProgressBar
             {
                 Left = 15,
-                Top = txtLog.Bottom + 10,
-                Width = grpLog.Width - 30,
-                Height = 18,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+                Top = txtLog.Bottom + 12,
+                Width = grpLog.Width - 45,
+                Height = 6,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                Style = ProgressBarStyle.Continuous
             };
 
-            grpLog.Controls.AddRange(new Control[] { txtLog, progress });
+            grpLog.Controls.AddRange(new Control[] { headerLog, txtLog, progress });
 
             // === OpenFileDialog ===
             ofd = new OpenFileDialog
@@ -311,13 +434,13 @@ namespace GibDesktopApplication
             // Add to form
             this.Controls.AddRange(new Control[]
             {
-                grpService, grpFile, grpSign, grpPreview, grpZipAndSend, grpLog
+                grpService, grpFile, grpSign, grpPreview, grpZipAndSend, grpStatus, grpLog
             });
 
             // Make layout responsive
             this.Resize += (s, e) =>
             {
-                lblSelectedFile.Width = grpFile.Width - 200;
+                lblSelectedFile.Width = grpFile.Width - 270;
             };
 
             // Step gating
@@ -326,7 +449,7 @@ namespace GibDesktopApplication
             btnReSign.Enabled = false;
             btnSendWsdl.Enabled = false;
             this.AutoScroll = true;
-            this.AutoScrollMinSize = new Size(0, grpLog.Bottom + 20);
+            this.AutoScrollMinSize = new Size(0, grpLog.Bottom + 30);
         }
 
         #endregion
@@ -339,9 +462,9 @@ namespace GibDesktopApplication
         private System.Windows.Forms.OpenFileDialog openFileDialog1;
         private System.Windows.Forms.Button loadXmlButton;
         private System.Windows.Forms.Button getCertificateInfosBtn;
-        private GroupBox grpStatus;
+        private ModernCard grpStatus;
         private TextBox txtStatusFileName;
-        private Button btnGetBatchStatus;
+        private ModernButton btnGetBatchStatus;
 
     }
 }
